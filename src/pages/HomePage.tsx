@@ -33,6 +33,8 @@ import {
   ScanLine,
   FileCheck,
   Search,
+  BarChart3,
+  MessageSquare,
 } from "lucide-react";
 import type { AuditItem } from "@/types/audit";
 import type { ScannedProject } from "@/lib/scanner";
@@ -146,6 +148,7 @@ export default function HomePage() {
           if (activeTab === "critical") return item.severity === "critical";
           if (activeTab === "warning") return item.severity === "warning";
           if (activeTab === "info") return item.severity === "info";
+          if (activeTab === "notice") return item.severity === "notice";
           if (activeTab === "done") return item.checked;
           if (activeTab === "pending") return !item.checked;
           return true;
@@ -155,6 +158,7 @@ export default function HomePage() {
   const criticalCount = items.filter((i) => i.severity === "critical").length;
   const warningCount = items.filter((i) => i.severity === "warning").length;
   const infoCount = items.filter((i) => i.severity === "info").length;
+  const noticeCount = items.filter((i) => i.severity === "notice").length;
   const doneCount = items.filter((i) => i.checked).length;
   const progressPercent =
     totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0;
@@ -266,6 +270,21 @@ export default function HomePage() {
                 icon: <GitMerge className="w-5 h-5" />,
                 title: "重复逻辑检测",
                 desc: "发现多处出现的相似 SQL 查询和代码模式",
+              },
+              {
+                icon: <BarChart3 className="w-5 h-5" />,
+                title: "圈复杂度分析",
+                desc: "计算文件和函数的圈复杂度，识别高复杂度模块",
+              },
+              {
+                icon: <MessageSquare className="w-5 h-5" />,
+                title: "幻数检测",
+                desc: "发现未命名的字面量数值，建议提取为具名常量",
+              },
+              {
+                icon: <MessageSquare className="w-5 h-5" />,
+                title: "注释覆盖率审计",
+                desc: "评估文件注释覆盖率，识别低注释模块",
               },
             ].map((cap, idx) => (
               <Card
@@ -419,6 +438,36 @@ export default function HomePage() {
             />
           </div>
 
+          {/* Complexity Stats */}
+          {result && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <StatCard
+                title="总圈复杂度"
+                value={result.complexity.totalCyclomatic}
+                icon={<BarChart3 className="w-5 h-5" />}
+                subtitle="Cyclomatic"
+              />
+              <StatCard
+                title="平均/文件"
+                value={result.complexity.avgPerFile}
+                icon={<BarChart3 className="w-5 h-5" />}
+                subtitle="复杂度均值"
+              />
+              <StatCard
+                title="注释覆盖率"
+                value={`${result.complexity.commentCoverage}%`}
+                icon={<MessageSquare className="w-5 h-5" />}
+                subtitle="项目级"
+              />
+              <StatCard
+                title="信息级"
+                value={noticeCount}
+                icon={<MessageSquare className="w-5 h-5" />}
+                subtitle="参考信息"
+              />
+            </div>
+          )}
+
           {/* File Stats */}
           <Card>
             <CardContent className="p-4">
@@ -468,6 +517,9 @@ export default function HomePage() {
                   </TabsTrigger>
                   <TabsTrigger value="info" className="text-xs">
                     提示 ({infoCount})
+                  </TabsTrigger>
+                  <TabsTrigger value="notice" className="text-xs">
+                    信息 ({noticeCount})
                   </TabsTrigger>
                   <TabsTrigger value="pending" className="text-xs">
                     待处理 ({totalItems - doneCount})

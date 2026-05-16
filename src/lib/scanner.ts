@@ -1,4 +1,4 @@
-import type { AuditItem, ScannedFile, ScannedProject } from "@/types/audit";
+import type { AuditItem, ScannedFile, ScannedProject, FileComplexity } from "@/types/audit";
 export type { ScannedProject };
 
 let scanIdCounter = 0;
@@ -8,26 +8,73 @@ function generateId(): string {
   return `scan-${Date.now()}-${scanIdCounter}`;
 }
 
-// Detect file type based on extension
 function detectFileType(fileName: string): ScannedFile["type"] {
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
-  if (ext === "js" || ext === "jsx" || ext === "mjs" || ext === "cjs") return "js";
-  if (ext === "ts" || ext === "tsx") return "ts";
+  if (["js", "jsx", "mjs", "cjs"].includes(ext)) return "js";
+  if (["ts", "tsx"].includes(ext)) return "ts";
   if (ext === "json") return "json";
   if (ext === "sql") return "sql";
   if (fileName === ".env" || ext === "env" || fileName.startsWith(".env.")) return "env";
   return "other";
 }
 
-// Scan 1: Unused imports detection
+// ===== Complexity Analysis =====
+function calculateComplexity(content: string, filePath: string): FileComplexity {
+  const lines = content.split("\n");
+  let cyclomatic = 1; // base
+  let functionCount = 0;
+  let commentLines = 0;
+  let inBlockComment = false;
+
+  // Branch keywords that increase cyclomatic complexity
+  const branchKeywords = /\b(if|else\s*if|while|for|switch|case|catch|\?\s*:|\|\||&&)\b/g;
+  // Function declarations
+  const funcRegex = /\b(function\s+\w+|\([^)]*\)\s*=>|\b\w+\s*:\s*function\s*\(|\b\w+\s*=\s*(async\s*)?function\s*\()/g;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Count branch points
+    const branches = trimmed.match(branchKeywords);
+    if (branches) cyclomatic += branches.length;
+
+    // Count functions
+    if (funcRegex.test(trimmed)) functionCount++;
+
+    // Count comments
+    if (inBlockComment) {
+      commentLines++;
+      if (trimmed.includes("*/")) inBlockComment = false;
+    } else if (trimmed.startsWith("//")) {
+      commentLines++;
+    } else if (trimmed.startsWith("/*")) {
+      commentLines++;
+      if (!trimmed.includes("*/")) inBlockComment = true;
+    }
+  }
+
+  const totalLines = lines.filter((l) => l.trim()).length;
+  const commentRatio = totalLines > 0 ? commentLines / totalLines : 0;
+
+  return {
+    path: filePath,
+    cyclomaticComplexity: cyclomatic,
+    functionCount: Math.max(functionCount, 1),
+    avgFunctionComplexity: Math.round((cyclomatic / Math.max(functionCount, 1)) * 10) / 10,
+    lines: totalLines,
+    commentRatio: Math.round(commentRatio * 100) / 100,
+  };
+}
+
+// Scan 1: Unused imports
 function scanUnusedImports(file: ScannedFile): AuditItem[] {
   const issues: AuditItem[] = [];
   if (file.type !== "js" && file.type !== "ts") return issues;
 
+  const lines = file.content.split("\n");
   const importRegex = /(?:const|let|var)\s+(\{[^}]+\}|\w+)\s+=\s+require\(['"]([^'"]+)['"]\)/g;
   const destructuringRegex = /\{([^}]+)\}/;
-  const lines = file.content.split("\n");
-
   const allImports: { names: string[]; module: string; line: number }[] = [];
 
   lines.forEach((line, idx) => {
@@ -46,7 +93,6 @@ function scanUnusedImports(file: ScannedFile): AuditItem[] {
     }
   });
 
-  // Also check ES6 imports
   const es6ImportRegex = /import\s+(?:(\{[^}]+\})|(\w+)|\*\s+as\s+(\w+))\s+from\s+['"]([^'"]+)['"]/g;
   lines.forEach((line, idx) => {
     es6ImportRegex.lastIndex = 0;
@@ -66,19 +112,14 @@ function scanUnusedImports(file: ScannedFile): AuditItem[] {
     }
   });
 
-  // Check if each imported name is used in the file (excluding the import line itself)
   for (const imp of allImports) {
     for (const name of imp.names) {
       if (!name) continue;
-      // Check usage in other lines
       let used = false;
       lines.forEach((line, idx) => {
-        if (idx === imp.line - 1) return; // Skip import line
-        // Simple check: is the identifier used as a whole word
+        if (idx === imp.line - 1) return;
         const regex = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-        if (regex.test(line)) {
-          used = true;
-        }
+        if (regex.test(line)) used = true;
       });
       if (!used) {
         issues.push({
@@ -92,6 +133,7 @@ function scanUnusedImports(file: ScannedFile): AuditItem[] {
           action: "直接从 import/require 语句中删除未使用的导入项",
           codeSnippet: lines.slice(Math.max(0, imp.line - 2), imp.line + 1).join("\n").slice(0, 300) || `// 第${imp.line}行: 未使用的导入 "${name}"`,
           checked: false,
+          effortHours: 0.25,
         });
       }
     }
@@ -112,27 +154,24 @@ function scanCommentedCode(file: ScannedFile): AuditItem[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    
     if (line.startsWith("/*") && !line.endsWith("*/")) {
       inBlockComment = true;
       commentBlockStart = i;
       commentBlockLines = [line];
       continue;
     }
-    
     if (inBlockComment) {
       commentBlockLines.push(line);
       if (line.endsWith("*/")) {
         inBlockComment = false;
         const blockContent = commentBlockLines.join("\n");
-        // Heuristic: if block contains code-like patterns
         if (
-          blockContent.includes("(") && 
+          blockContent.includes("(") &&
           blockContent.includes(")") &&
-          (blockContent.includes("const ") || 
-           blockContent.includes("function") ||
-           blockContent.includes("app.use") ||
-           blockContent.includes("require("))
+          (blockContent.includes("const ") ||
+            blockContent.includes("function") ||
+            blockContent.includes("app.use") ||
+            blockContent.includes("require("))
         ) {
           issues.push({
             id: generateId(),
@@ -145,21 +184,19 @@ function scanCommentedCode(file: ScannedFile): AuditItem[] {
             action: "评估后删除，如需恢复可从 Git history 检出",
             codeSnippet: blockContent.slice(0, 400) + (blockContent.length > 400 ? "..." : ""),
             checked: false,
+            effortHours: 0.5,
           });
         }
         commentBlockLines = [];
       }
       continue;
     }
-
-    // Single line commented code (// followed by code-like patterns)
     if (line.startsWith("//") && line.length > 5) {
       const codePart = line.slice(2).trim();
       if (
         (codePart.includes("const ") || codePart.includes("let ") || codePart.includes("var ")) &&
         codePart.includes("=")
       ) {
-        // Skip if it's a JSDoc-style or explanatory comment
         if (!codePart.includes("@") && !codePart.startsWith("NOTE") && !codePart.startsWith("TODO")) {
           issues.push({
             id: generateId(),
@@ -172,6 +209,7 @@ function scanCommentedCode(file: ScannedFile): AuditItem[] {
             action: "删除注释掉的单行代码",
             codeSnippet: line,
             checked: false,
+            effortHours: 0.25,
           });
         }
       }
@@ -181,7 +219,7 @@ function scanCommentedCode(file: ScannedFile): AuditItem[] {
   return issues;
 }
 
-// Scan 3: Dead functions (functions defined but never called)
+// Scan 3: Dead functions
 function scanDeadFunctions(file: ScannedFile): AuditItem[] {
   const issues: AuditItem[] = [];
   if (file.type !== "js" && file.type !== "ts") return issues;
@@ -202,26 +240,22 @@ function scanDeadFunctions(file: ScannedFile): AuditItem[] {
   });
 
   for (const fn of functions) {
-    // Check if function is called anywhere
     const callRegex = new RegExp(`\\b${fn.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\(`, "g");
     let called = false;
-    
-    // Don't count the definition itself
     lines.forEach((line, idx) => {
       if (idx === fn.line - 1) return;
       callRegex.lastIndex = 0;
-      if (callRegex.test(line)) {
-        called = true;
-      }
+      if (callRegex.test(line)) called = true;
     });
 
-    // Also check if it's exported (then it might be used externally)
     const isExported = lines.some((line) => {
-      return line.includes(`module.exports.${fn.name}`) || 
-             line.includes(`exports.${fn.name}`) ||
-             line.includes(`export { ${fn.name} }`) ||
-             line.includes(`export const ${fn.name}`) ||
-             line.includes(`export function ${fn.name}`);
+      return (
+        line.includes(`module.exports.${fn.name}`) ||
+        line.includes(`exports.${fn.name}`) ||
+        line.includes(`export { ${fn.name} }`) ||
+        line.includes(`export const ${fn.name}`) ||
+        line.includes(`export function ${fn.name}`)
+      );
     });
 
     if (!called && !isExported) {
@@ -234,8 +268,11 @@ function scanDeadFunctions(file: ScannedFile): AuditItem[] {
         description: `函数 "${fn.name}" 在当前文件内被定义但未被任何代码调用，也未被导出供外部使用。`,
         impact: "删除后不影响功能。该函数为零引用函数。",
         action: "直接删除该函数及其注释文档",
-        codeSnippet: lines.slice(Math.max(0, fn.line - 1), Math.min(lines.length, fn.line + 4)).join("\n").slice(0, 300) || `// 第${fn.line}行: 死函数 "${fn.name}"`,
+        codeSnippet:
+          lines.slice(Math.max(0, fn.line - 1), Math.min(lines.length, fn.line + 4)).join("\n").slice(0, 300) ||
+          `// 第${fn.line}行: 死函数 "${fn.name}"`,
         checked: false,
+        effortHours: 0.5,
       });
     }
   }
@@ -243,7 +280,105 @@ function scanDeadFunctions(file: ScannedFile): AuditItem[] {
   return issues;
 }
 
-// Scan 4: Unused dependencies in package.json
+// Scan 4: Magic numbers
+function scanMagicNumbers(file: ScannedFile): AuditItem[] {
+  const issues: AuditItem[] = [];
+  if (file.type !== "js" && file.type !== "ts") return issues;
+
+  const lines = file.content.split("\n");
+  const magicRegex = /[^\w.](\d{3,}|\d{1,2})[^\w]/g;
+  const allowed = ["0", "1", "-1", "2", "100"];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith("//") || line.trim().startsWith("*")) continue;
+
+    magicRegex.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    const found = new Set<string>();
+
+    while ((match = magicRegex.exec(line)) !== null) {
+      const num = match[1];
+      if (allowed.includes(num)) continue;
+      // Skip if part of array index, timestamp, or date
+      const ctx = line.slice(Math.max(0, match.index - 5), match.index + 5);
+      if (ctx.includes("[") || ctx.includes("]")) continue;
+      if (/\d{4}-\d{2}-\d{2}/.test(ctx) || /\d{2}:\d{2}/.test(ctx)) continue;
+      if (found.has(num)) continue;
+      found.add(num);
+
+      issues.push({
+        id: generateId(),
+        severity: "notice",
+        category: "变量与常量审计",
+        title: `幻数: ${num}`,
+        location: `${file.path} (第${i + 1}行)`,
+        description: `发现未命名的字面量数值 "${num}"，建议提取为具名常量以提高可读性和可维护性。`,
+        impact: "不影响功能，但增加代码理解成本。修改为命名常量后不影响任何行为。",
+        action: "提取为 const 常量，如 const MAX_RETRY = 5",
+        codeSnippet: line.trim().slice(0, 120),
+        checked: false,
+        effortHours: 0.25,
+      });
+    }
+  }
+
+  return issues.slice(0, 5); // Limit to avoid noise
+}
+
+// Scan 5: Low comment coverage
+function scanLowCommentCoverage(file: ScannedFile): AuditItem[] {
+  const issues: AuditItem[] = [];
+  if (file.type !== "js" && file.type !== "ts") return issues;
+
+  const complexity = calculateComplexity(file.content, file.path);
+  if (complexity.commentRatio < 0.05 && complexity.lines > 50) {
+    issues.push({
+      id: generateId(),
+      severity: "notice",
+      category: "文档与注释审计",
+      title: "注释覆盖率偏低",
+      location: `${file.path} (${complexity.lines} 行)`,
+      description: `文件注释覆盖率仅 ${Math.round(complexity.commentRatio * 100)}%，低于建议的 5% 阈值（${complexity.lines} 行代码中仅约 ${Math.round(complexity.lines * complexity.commentRatio)} 行注释）。`,
+      impact: "不影响功能，但增加后续维护成本。新人理解代码难度增加。",
+      action: "为公共函数添加 JSDoc 注释，为复杂逻辑添加行内注释",
+      codeSnippet: `// 当前注释覆盖率: ${Math.round(complexity.commentRatio * 100)}%`,
+      checked: false,
+      complexity: Math.round(complexity.commentRatio * 100),
+      effortHours: 1.0,
+    });
+  }
+
+  return issues;
+}
+
+// Scan 6: High cyclomatic complexity
+function scanHighComplexity(file: ScannedFile): AuditItem[] {
+  const issues: AuditItem[] = [];
+  if (file.type !== "js" && file.type !== "ts") return issues;
+
+  const complexity = calculateComplexity(file.content, file.path);
+  if (complexity.cyclomaticComplexity > 15) {
+    issues.push({
+      id: generateId(),
+      severity: "warning",
+      category: "复杂度审计",
+      title: `高圈复杂度: ${complexity.cyclomaticComplexity}`,
+      location: `${file.path} (${complexity.functionCount} 个函数)`,
+      description: `文件圈复杂度为 ${complexity.cyclomaticComplexity}，超出建议阈值 15。平均每函数复杂度 ${complexity.avgFunctionComplexity}。`,
+      impact: "不影响功能，但增加测试覆盖难度和 bug 引入风险。高复杂度模块通常难以维护。",
+      action: "提取子函数、简化条件分支、使用策略模式替代冗长 if-else 链",
+      codeSnippet: `// 圈复杂度: ${complexity.cyclomaticComplexity}\n// 函数数: ${complexity.functionCount}\n// 平均复杂度: ${complexity.avgFunctionComplexity}`,
+      checked: false,
+      complexity: complexity.cyclomaticComplexity,
+      effortHours: 2.0,
+    });
+  }
+
+  return issues;
+}
+
+// Scan 7: Unused dependencies
 function scanUnusedDependencies(files: ScannedFile[]): AuditItem[] {
   const issues: AuditItem[] = [];
   const pkgFile = files.find((f) => f.name === "package.json");
@@ -258,7 +393,6 @@ function scanUnusedDependencies(files: ScannedFile[]): AuditItem[] {
       .join("\n");
 
     for (const [depName] of Object.entries(deps)) {
-      // Check if dependency is imported anywhere
       const importPatterns = [
         new RegExp(`require\\s*\\(\\s*['"]${depName}['"]\\s*\\)`),
         new RegExp(`require\\s*\\(\\s*['"]${depName}/[^'"]*['"]\\s*\\)`),
@@ -269,7 +403,6 @@ function scanUnusedDependencies(files: ScannedFile[]): AuditItem[] {
       const isUsed = importPatterns.some((pattern) => pattern.test(allCode));
 
       if (!isUsed) {
-        // Some deps are used implicitly (e.g., types, build tools)
         const implicitDeps = [
           "typescript", "@types", "eslint", "prettier", "jest", "mocha",
           "nodemon", "ts-node", "vite", "webpack", "parcel", "rollup",
@@ -281,12 +414,13 @@ function scanUnusedDependencies(files: ScannedFile[]): AuditItem[] {
             severity: "critical",
             category: "历史功能残留排查",
             title: `未使用的依赖包: ${depName}`,
-            location: `package.json (dependencies)`,
+            location: "package.json (dependencies)",
             description: `"${depName}" 在 package.json 中声明，但在所有 JS/TS 文件中均未发现 import 或 require 引用。`,
             impact: "删除后不影响功能。depcheck 扫描确认零引用。",
             action: `npm uninstall ${depName}`,
             codeSnippet: `"${depName}": "${(deps as Record<string, string>)[depName]}"`,
             checked: false,
+            effortHours: 0.25,
           });
         }
       }
@@ -298,7 +432,7 @@ function scanUnusedDependencies(files: ScannedFile[]): AuditItem[] {
   return issues;
 }
 
-// Scan 5: Environment variable usage
+// Scan 8: Environment variables
 function scanEnvFiles(files: ScannedFile[]): AuditItem[] {
   const issues: AuditItem[] = [];
   const envFiles = files.filter((f) => f.type === "env");
@@ -309,14 +443,11 @@ function scanEnvFiles(files: ScannedFile[]): AuditItem[] {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
-      
       const eqIdx = trimmed.indexOf("=");
       if (eqIdx === -1) continue;
-      
       const key = trimmed.slice(0, eqIdx).trim();
       if (!key) continue;
 
-      // Check if this env var is used in any JS file
       const isUsed = jsFiles.some((f) => {
         return (
           f.content.includes(`process.env.${key}`) ||
@@ -337,6 +468,7 @@ function scanEnvFiles(files: ScannedFile[]): AuditItem[] {
           action: "清理 .env 和 config 中的未使用配置项",
           codeSnippet: `${key}=${trimmed.slice(eqIdx + 1)}`,
           checked: false,
+          effortHours: 0.25,
         });
       }
     }
@@ -345,23 +477,19 @@ function scanEnvFiles(files: ScannedFile[]): AuditItem[] {
   return issues;
 }
 
-// Scan 6: Duplicate logic patterns
+// Scan 9: Duplicate SQL logic
 function scanDuplicateLogic(files: ScannedFile[]): AuditItem[] {
   const issues: AuditItem[] = [];
-  
-  // Find similar SQL queries across files
   const sqlPatterns: { sql: string; files: string[]; lines: number[] }[] = [];
-  
+
   for (const file of files) {
     if (file.type !== "js" && file.type !== "ts") continue;
-    
     const sqlRegex = /(?:db\.(?:get|query|run|all)\s*\(\s*['"`])(SELECT\s+.*?\s+FROM\s+\w+)/gi;
     let match: RegExpExecArray | null;
 
     while ((match = sqlRegex.exec(file.content)) !== null) {
       const sql = match[1].toLowerCase().replace(/\s+/g, " ");
       const lineIdx = file.content.slice(0, match.index).split("\n").length;
-      
       const existing = sqlPatterns.find((p) => p.sql === sql);
       if (existing) {
         if (!existing.files.includes(file.path)) {
@@ -387,6 +515,7 @@ function scanDuplicateLogic(files: ScannedFile[]): AuditItem[] {
         action: "提取为共享的 Model 方法，各 service 统一调用",
         codeSnippet: `// 在 ${pattern.files.length} 个文件中发现相同查询：\n${pattern.sql.slice(0, 150)}`,
         checked: false,
+        effortHours: 1.5,
       });
     }
   }
@@ -403,27 +532,19 @@ export async function scanProject(files: FileList): Promise<ScannedProject> {
   let sqlFiles = 0;
   let envFiles = 0;
   let otherFiles = 0;
+  let totalCyclomatic = 0;
+  let filesAnalyzed = 0;
+  let totalCommentRatio = 0;
 
-  // Read all files
   const fileArray = Array.from(files);
   for (const file of fileArray) {
-    // Skip node_modules, .git, and binary files
     const filePath = file.webkitRelativePath || file.name;
     if (
       filePath.includes("node_modules/") ||
       filePath.includes(".git/") ||
       file.name.endsWith(".lock") ||
       file.name.endsWith(".log") ||
-      file.name.endsWith(".png") ||
-      file.name.endsWith(".jpg") ||
-      file.name.endsWith(".jpeg") ||
-      file.name.endsWith(".gif") ||
-      file.name.endsWith(".svg") ||
-      file.name.endsWith(".ico") ||
-      file.name.endsWith(".woff") ||
-      file.name.endsWith(".woff2") ||
-      file.name.endsWith(".ttf") ||
-      file.name.endsWith(".eot")
+      [".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot"].some((ext) => file.name.endsWith(ext))
     ) {
       continue;
     }
@@ -440,32 +561,42 @@ export async function scanProject(files: FileList): Promise<ScannedProject> {
       else if (type === "env") envFiles++;
       else otherFiles++;
 
+      let complexity: FileComplexity | undefined;
+      if (type === "js" || type === "ts") {
+        complexity = calculateComplexity(content, filePath);
+        totalCyclomatic += complexity.cyclomaticComplexity;
+        filesAnalyzed++;
+        totalCommentRatio += complexity.commentRatio;
+      }
+
       scannedFiles.push({
         name: file.name,
-        path: file.webkitRelativePath || file.name,
+        path: filePath,
         content,
         type,
         size: file.size,
+        complexity,
       });
     } catch {
-      // Skip unreadable files
+      // Skip unreadable
     }
   }
 
-  // Run all scans
   const allIssues: AuditItem[] = [];
 
   for (const file of scannedFiles) {
     allIssues.push(...scanUnusedImports(file));
     allIssues.push(...scanCommentedCode(file));
     allIssues.push(...scanDeadFunctions(file));
+    allIssues.push(...scanMagicNumbers(file));
+    allIssues.push(...scanLowCommentCoverage(file));
+    allIssues.push(...scanHighComplexity(file));
   }
 
   allIssues.push(...scanUnusedDependencies(scannedFiles));
   allIssues.push(...scanEnvFiles(scannedFiles));
   allIssues.push(...scanDuplicateLogic(scannedFiles));
 
-  // Deduplicate by similar title + location
   const seen = new Set<string>();
   const uniqueIssues = allIssues.filter((issue) => {
     const key = `${issue.title}|${issue.location}`;
@@ -484,6 +615,12 @@ export async function scanProject(files: FileList): Promise<ScannedProject> {
     files: scannedFiles,
     totalFiles: scannedFiles.length,
     issues: uniqueIssues,
+    complexity: {
+      totalCyclomatic,
+      avgPerFile: filesAnalyzed > 0 ? Math.round((totalCyclomatic / filesAnalyzed) * 10) / 10 : 0,
+      filesAnalyzed,
+      commentCoverage: filesAnalyzed > 0 ? Math.round((totalCommentRatio / filesAnalyzed) * 1000) / 10 : 0,
+    },
     stats: {
       totalLines,
       jsFiles,
@@ -495,13 +632,15 @@ export async function scanProject(files: FileList): Promise<ScannedProject> {
   };
 }
 
-// Scanning steps for progress display
 export const SCAN_STEPS = [
   { name: "读取文件列表", duration: 500 },
   { name: "解析 JS/TS 源码", duration: 800 },
+  { name: "计算圈复杂度", duration: 400 },
   { name: "检测未使用导入", duration: 600 },
   { name: "扫描死函数", duration: 700 },
   { name: "查找注释代码块", duration: 500 },
+  { name: "检测幻数常量", duration: 400 },
+  { name: "分析注释覆盖率", duration: 400 },
   { name: "分析 package.json 依赖", duration: 600 },
   { name: "检查环境变量使用", duration: 500 },
   { name: "检测重复 SQL 查询", duration: 600 },

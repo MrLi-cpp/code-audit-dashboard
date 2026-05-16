@@ -32,6 +32,8 @@ import {
   EyeOff,
   Hammer,
   BookOpen,
+  BarChart3,
+  MessageSquare,
 } from "lucide-react";
 import type { AuditItem } from "@/types/audit";
 import { exampleAuditData } from "@/data/exampleData";
@@ -87,6 +89,7 @@ export default function ExamplesPage() {
           if (activeTab === "critical") return item.severity === "critical";
           if (activeTab === "warning") return item.severity === "warning";
           if (activeTab === "info") return item.severity === "info";
+          if (activeTab === "notice") return item.severity === "notice";
           if (activeTab === "done") return item.checked;
           if (activeTab === "pending") return !item.checked;
           return true;
@@ -96,6 +99,7 @@ export default function ExamplesPage() {
   const criticalCount = items.filter((i) => i.severity === "critical").length;
   const warningCount = items.filter((i) => i.severity === "warning").length;
   const infoCount = items.filter((i) => i.severity === "info").length;
+  const noticeCount = items.filter((i) => i.severity === "notice").length;
   const doneCount = items.filter((i) => i.checked).length;
   const progressPercent = Math.round((doneCount / totalItems) * 100);
 
@@ -112,6 +116,9 @@ export default function ExamplesPage() {
     { icon: <PackageOpen className="w-4 h-4" />, label: "未使用的依赖包" },
     { icon: <HardDrive className="w-4 h-4" />, label: "残留静态资源" },
     { icon: <Archive className="w-4 h-4" />, label: "过期迁移脚本" },
+    { icon: <BarChart3 className="w-4 h-4" />, label: "圈复杂度分析" },
+    { icon: <MessageSquare className="w-4 h-4" />, label: "幻数检测" },
+    { icon: <MessageSquare className="w-4 h-4" />, label: "注释覆盖率" },
   ];
 
   return (
@@ -134,7 +141,7 @@ export default function ExamplesPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
         <StatCard
           title="总问题数"
           value={totalItems}
@@ -158,6 +165,12 @@ export default function ExamplesPage() {
           value={infoCount}
           icon={<Info className="w-5 h-5" />}
           subtitle="参考信息"
+        />
+        <StatCard
+          title="信息"
+          value={noticeCount}
+          icon={<MessageSquare className="w-5 h-5" />}
+          subtitle="低优先级"
         />
         <StatCard
           title="已处理"
@@ -245,6 +258,15 @@ export default function ExamplesPage() {
                   参考信息，按需处理
                 </span>
               </div>
+              <div className="flex items-center gap-3">
+                <span className="severity-badge-notice">
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  信息
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  低优先级参考，代码风格与可读性改进
+                </span>
+              </div>
             </CardContent>
           </Card>
 
@@ -312,6 +334,9 @@ export default function ExamplesPage() {
               </TabsTrigger>
               <TabsTrigger value="info" className="text-xs">
                 提示 ({infoCount})
+              </TabsTrigger>
+              <TabsTrigger value="notice" className="text-xs">
+                信息 ({noticeCount})
               </TabsTrigger>
               <TabsTrigger value="pending" className="text-xs">
                 待处理 ({totalItems - doneCount})

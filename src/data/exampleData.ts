@@ -119,6 +119,8 @@ app.use('/api/v1/posts', postRoutesV1);
 // app.use('/api/v1/comments', commentRoutesV1);  // 功能未上线
 === 旧版 v1 API 结束 === */`,
         checked: false,
+        assignee: "li.jiguang",
+        effortHours: 1.0,
       },
     ],
   },
@@ -371,6 +373,88 @@ eventEmitter.on('user.registered', async (user) => {
 // 但注册流程中：
 // authController.js 直接调用 emailService.sendWelcomeEmail()  \u2190 未触发事件`,
         checked: false,
+      },
+    ],
+  },
+  {
+    id: "complexity",
+    title: "复杂度审计",
+    description: "识别高圈复杂度模块、重复代码片段和低注释覆盖率文件",
+    icon: "BarChart3",
+    items: [
+      {
+        id: "cx-1",
+        severity: "warning",
+        category: "复杂度审计",
+        title: "高圈复杂度：paymentService.processOrder()",
+        location: "src/services/payment.js (第45-120行)",
+        description:
+          "函数 processOrder() 包含 12 个 if/else 分支、3 个嵌套循环和 4 个 switch case，圈复杂度为 28，远超建议阈值 15。",
+        impact:
+          "不影响功能，但单元测试覆盖率仅 42%（建议 ≥80%），高复杂度增加 bug 引入风险。",
+        action: "提取支付策略子函数（信用卡/支付宝/微信），使用策略模式替代冗长 if-else 链",
+        codeSnippet: `// 当前：圈复杂度 28，76 行\nfunction processOrder(order) {\n  if (order.payment === 'credit_card') { ... 18 lines ... }\n  else if (order.payment === 'alipay') { ... 15 lines ... }\n  else if (order.payment === 'wechat') { ... 15 lines ... }\n  // 共 12 个分支\n}\n\n// 建议：策略模式\nconst strategies = { credit_card: processCreditCard, alipay: processAlipay, ... };`,
+        checked: false,
+        complexity: 28,
+        assignee: "li.jiguang",
+        effortHours: 3.0,
+      },
+      {
+        id: "cx-2",
+        severity: "notice",
+        category: "复杂度审计",
+        title: "文件注释覆盖率偏低：authController.js",
+        location: "src/controllers/auth.js (345 行)",
+        description:
+          "文件共 345 行有效代码，但仅含 3 行注释，注释覆盖率 0.9%，远低于建议阈值 5%。",
+        impact:
+          "不影响功能，但新成员理解登录/注册/密码重置流程的成本显著增加。",
+        action: "为公共函数添加 JSDoc 注释，为复杂条件分支添加行内注释",
+        codeSnippet: `// 当前注释覆盖率: 0.9%\n// 建议：为以下函数添加 JSDoc\n// login(req, res)     → 处理 OAuth + 本地登录双分支\n// resetPassword(req)  → 包含 token 验证 + 密码策略校验`,
+        checked: false,
+        complexity: 1,
+        assignee: "team.frontend",
+        effortHours: 1.5,
+      },
+      {
+        id: "cx-3",
+        severity: "notice",
+        category: "复杂度审计",
+        title: "幻数常量：5 处未命名数值",
+        location: "src/services/order.js (多处)",
+        description:
+          "发现 5 处字面量数值未提取为常量：86400000（ms→day）、1024*1024*5（5MB 限制）、3（重试次数）、7（缓存天数）、30（token 有效期）。",
+        impact:
+          "不影响功能，但修改阈值时需全局搜索替换，易遗漏且缺乏语义说明。",
+        action: "提取为 const 常量：MS_PER_DAY = 86400000, MAX_FILE_SIZE = 5 * 1024 * 1024 等",
+        codeSnippet: `// 当前：幻数散落\nconst ttl = 86400000 * 7;      // 86400000 是什么？\nif (file.size > 5242880) { ... }  // 5242880 = 5MB?\n\n// 建议：具名常量\nconst MS_PER_DAY = 86400000;\nconst MAX_FILE_SIZE = 5 * 1024 * 1024;\nconst RETRY_COUNT = 3;`,
+        checked: false,
+        assignee: "li.jiguang",
+        effortHours: 0.5,
+      },
+    ],
+  },
+  {
+    id: "variable-audit",
+    title: "变量与常量审计",
+    description: "检测未使用变量、幻数常量和命名不一致",
+    icon: "Variable",
+    items: [
+      {
+        id: "va-1",
+        severity: "notice",
+        category: "变量与常量审计",
+        title: "未使用的常量：MAX_UPLOAD_SIZE",
+        location: "src/config/constants.js (第8行)",
+        description:
+          "常量 MAX_UPLOAD_SIZE = 50 * 1024 * 1024 在 constants.js 中定义，但所有上传校验使用内联数值 5242880。",
+        impact:
+          "不影响功能，但配置与实际逻辑不一致，可能导致未来修改遗漏。",
+        action: "统一引用 MAX_UPLOAD_SIZE 常量，删除内联数值",
+        codeSnippet: `// constants.js\nexport const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;  // ← 未使用\n\n// upload.js（实际使用）\nif (file.size > 5242880) { ... }  // ← 应改为 MAX_UPLOAD_SIZE`,
+        checked: false,
+        assignee: "li.jiguang",
+        effortHours: 0.25,
       },
     ],
   },

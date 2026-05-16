@@ -11,10 +11,13 @@ import {
   FileSearch,
   AlertTriangle,
   Info,
+  MessageSquare,
+  Clock,
+  BarChart3,
 } from "lucide-react";
 import type { AuditItem, Severity } from "@/types/audit";
 
-const severityConfig = {
+const severityConfig: Record<Severity, { label: string; badgeClass: string; icon: React.ReactNode }> = {
   critical: {
     label: "严重",
     badgeClass: "severity-badge-critical",
@@ -29,6 +32,11 @@ const severityConfig = {
     label: "提示",
     badgeClass: "severity-badge-info",
     icon: <Info className="w-4 h-4" />,
+  },
+  notice: {
+    label: "信息",
+    badgeClass: "severity-badge-notice",
+    icon: <MessageSquare className="w-4 h-4" />,
   },
 };
 
@@ -74,6 +82,18 @@ export function AuditItemCard({
               <span className="text-xs text-muted-foreground font-mono">
                 {item.id.toUpperCase()}
               </span>
+              {item.complexity !== undefined && (
+                <Badge variant="outline" className="text-xs flex items-center gap-1">
+                  <BarChart3 className="w-3 h-3" />
+                  复杂度 {item.complexity}
+                </Badge>
+              )}
+              {item.effortHours !== undefined && (
+                <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  ~{item.effortHours}h
+                </Badge>
+              )}
             </div>
             <h3
               className={`mt-2 text-base font-semibold leading-snug ${
@@ -86,6 +106,12 @@ export function AuditItemCard({
               <FileSearch className="w-3.5 h-3.5 shrink-0" />
               <code className="text-xs">{item.location}</code>
             </div>
+            {item.assignee && (
+              <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
+                <span className="text-muted-foreground/60">归属:</span>
+                <span className="font-mono">{item.assignee}</span>
+              </div>
+            )}
           </div>
           <button
             onClick={() => setExpanded(!expanded)}
