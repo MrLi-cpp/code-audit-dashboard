@@ -16,13 +16,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   Info,
-  Code2,
   Database,
   FileCode,
-  Settings,
-  Trash2,
-  GitMerge,
-  Route,
   CheckCircle2,
   AlertCircle,
   FileSearch,
@@ -33,15 +28,17 @@ import {
   FolderOpen,
   Loader2,
   ScanLine,
-  FileCheck,
-  Search,
-  BarChart3,
-  MessageSquare,
-  ArrowRight,
+  Lock,
+  Bug,
+  KeyRound,
+  Globe,
+  Fingerprint,
+  FileUp,
+  Server,
+  Siren,
 } from "lucide-react";
-import type { AuditItem } from "@/types/audit";
-import type { ScannedProject } from "@/lib/scanner";
-import { scanProject, SCAN_STEPS } from "@/lib/scanner";
+import type { AuditItem, ScannedProject } from "@/types/audit";
+import { scanSecurity, SECURITY_SCAN_STEPS } from "@/lib/securityScanner";
 import { AuditItemCard } from "@/components/AuditItemCard";
 
 type ScanPhase = "idle" | "scanning" | "done";
@@ -75,7 +72,7 @@ function StatCard({
   );
 }
 
-export default function HomePage() {
+export default function SecurityPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<ScanPhase>("idle");
@@ -100,20 +97,18 @@ export default function HomePage() {
     setResult(null);
     setItems([]);
 
-    // Simulate step-by-step progress
     let progress = 0;
-    for (const step of SCAN_STEPS) {
+    for (const step of SECURITY_SCAN_STEPS) {
       setCurrentStep(step.name);
       await new Promise((r) => setTimeout(r, step.duration));
-      progress += 100 / SCAN_STEPS.length;
+      progress += 100 / SECURITY_SCAN_STEPS.length;
       setScanProgress(Math.min(progress, 100));
     }
 
     setCurrentStep("扫描完成");
     setScanProgress(100);
 
-    // Run actual scan
-    const project = await scanProject(files);
+    const project = await scanSecurity(files);
     setResult(project);
     setItems(project.issues);
 
@@ -166,78 +161,32 @@ export default function HomePage() {
   const progressPercent =
     totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0;
 
-  // Group items by category
-  const grouped = filteredItems.reduce<Record<string, AuditItem[]>>((acc, item) => {
-    if (!acc[item.category]) acc[item.category] = [];
-    acc[item.category].push(item);
-    return acc;
-  }, {});
+  const grouped = filteredItems.reduce<Record<string, AuditItem[]>>(
+    (acc, item) => {
+      if (!acc[item.category]) acc[item.category] = [];
+      acc[item.category].push(item);
+      return acc;
+    },
+    {}
+  );
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Upload Section - Only show when idle */}
+      {/* Idle: Upload */}
       {phase === "idle" && (
         <div className="space-y-6">
           {/* Hero */}
-          <div className="text-center space-y-4 py-8">
-            <div className="inline-flex p-4 rounded-2xl bg-primary/10">
-              <ScanLine className="w-12 h-12 text-primary" />
+          <div className="text-center space-y-4 py-12">
+            <div className="inline-flex p-4 rounded-2xl bg-red-500/10">
+              <ShieldAlert className="w-12 h-12 text-red-600 dark:text-red-400" />
             </div>
             <h2 className="text-3xl font-bold tracking-tight">
-              Node.js 项目代码审计
+              代码安全性审查
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              全面扫描你的项目：代码质量审查找出冗余与债务，安全性审查拦截漏洞与风险。
+              上传你的项目文件夹，自动检测 SQL 注入、XSS、硬编码密钥、
+              CSRF、命令注入、文件上传漏洞等安全威胁。
             </p>
-          </div>
-
-          {/* Dual Entry Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="group relative rounded-2xl border-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5 transition-all duration-300 p-8 text-center space-y-4 text-left"
-            >
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-primary/10 text-primary">
-                  <ShieldCheck className="w-8 h-8" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold group-hover:text-primary transition-colors">
-                    代码质量审查
-                  </h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    冗余代码 · 死函数 · 未使用依赖 · 圈复杂度
-                  </p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                点击上传项目文件夹，自动检测未使用导入、注释代码块、死函数、依赖冗余与历史残留。
-              </p>
-            </button>
-
-            <button
-              onClick={() => navigate("/security")}
-              className="group relative rounded-2xl border-2 border-dashed border-red-400/30 hover:border-red-500 hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-all duration-300 p-8 text-center space-y-4 text-left"
-            >
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-red-500/10 text-red-600 dark:text-red-400">
-                  <ShieldAlert className="w-8 h-8" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">
-                    代码安全性审查
-                  </h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    SQL注入 · XSS · 硬编码密钥 · CSRF · 命令注入
-                  </p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-red-500 transition-colors" />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                跳转至安全审查模式，检测注入漏洞、敏感数据泄露、认证缺陷、依赖漏洞与部署风险。
-              </p>
-            </button>
           </div>
 
           {/* Upload Zone */}
@@ -248,14 +197,14 @@ export default function HomePage() {
             onDragLeave={handleDragLeave}
             className={`relative cursor-pointer rounded-2xl border-2 border-dashed transition-all duration-300 p-12 text-center space-y-4 ${
               dragOver
-                ? "border-primary bg-primary/5 scale-[1.01]"
-                : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/30"
+                ? "border-red-400 bg-red-50/50 dark:bg-red-900/10 scale-[1.01]"
+                : "border-muted-foreground/25 hover:border-red-400/50 hover:bg-red-50/20"
             }`}
           >
             <input
               ref={fileInputRef}
               type="file"
-              // @ts-expect-error webkitdirectory is non-standard but supported
+              // @ts-expect-error webkitdirectory
               webkitdirectory="true"
               directory="true"
               multiple
@@ -264,11 +213,11 @@ export default function HomePage() {
             />
             <div
               className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center transition-colors ${
-                dragOver ? "bg-primary/20" : "bg-muted"
+                dragOver ? "bg-red-100 dark:bg-red-900/30" : "bg-muted"
               }`}
             >
               {dragOver ? (
-                <FolderOpen className="w-10 h-10 text-primary" />
+                <FolderOpen className="w-10 h-10 text-red-500" />
               ) : (
                 <Upload className="w-10 h-10 text-muted-foreground" />
               )}
@@ -286,6 +235,7 @@ export default function HomePage() {
               <Badge variant="secondary">.json</Badge>
               <Badge variant="secondary">.sql</Badge>
               <Badge variant="secondary">.env</Badge>
+              <Badge variant="secondary">.html</Badge>
             </div>
           </div>
 
@@ -293,57 +243,69 @@ export default function HomePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               {
-                icon: <EyeOff className="w-5 h-5" />,
-                title: "未使用导入检测",
-                desc: "扫描 require/import 语句中未被引用的模块和变量",
+                icon: <Database className="w-5 h-5" />,
+                title: "注入漏洞检测",
+                desc: "SQL 注入、命令注入、eval / new Function 等代码注入",
               },
               {
-                icon: <Trash2 className="w-5 h-5" />,
-                title: "死函数识别",
-                desc: "发现定义但未被调用的函数和方法",
+                icon: <KeyRound className="w-5 h-5" />,
+                title: "硬编码密钥扫描",
+                desc: "API Key、密码、Token、AWS/GH 凭证等敏感信息",
+              },
+              {
+                icon: <Bug className="w-5 h-5" />,
+                title: "XSS / DOM 漏洞",
+                desc: "innerHTML、dangerouslySetInnerHTML 等未过滤输出",
+              },
+              {
+                icon: <Lock className="w-5 h-5" />,
+                title: "CSRF 防护缺失",
+                desc: "检测 POST/PUT/DELETE 路由是否缺少 CSRF 保护",
+              },
+              {
+                icon: <Globe className="w-5 h-5" />,
+                title: "CORS 配置审计",
+                desc: "origin: * + credentials: true 等危险配置",
+              },
+              {
+                icon: <FileUp className="w-5 h-5" />,
+                title: "文件上传安全",
+                desc: "检测上传处理是否缺少 MIME / 扩展名 / 文件头校验",
               },
               {
                 icon: <FileCode className="w-5 h-5" />,
-                title: "注释代码块",
-                desc: "检测被注释掉的代码段和废弃逻辑",
+                title: "路径遍历风险",
+                desc: "fs.readFile、res.sendFile 等使用用户输入拼接路径",
+              },
+              {
+                icon: <Fingerprint className="w-5 h-5" />,
+                title: "认证安全检测",
+                desc: "密码哈希强度、JWT 过期时间、Session 安全",
               },
               {
                 icon: <PackageOpen className="w-5 h-5" />,
-                title: "依赖分析",
-                desc: "对比 package.json 与实际代码中的依赖使用情况",
+                title: "依赖漏洞扫描",
+                desc: "已知漏洞依赖（lodash、jquery、ejs 等 CVE）",
               },
               {
-                icon: <Settings className="w-5 h-5" />,
-                title: "环境变量审计",
-                desc: "检查 .env 中定义但未使用的配置项",
+                icon: <Siren className="w-5 h-5" />,
+                title: "安全响应头缺失",
+                desc: "helmet、CSP、HSTS、X-Frame-Options 等 HTTP 头",
               },
               {
-                icon: <GitMerge className="w-5 h-5" />,
-                title: "重复逻辑检测",
-                desc: "发现多处出现的相似 SQL 查询和代码模式",
+                icon: <Server className="w-5 h-5" />,
+                title: "ReDoS 正则检测",
+                desc: "嵌套量词正则表达式导致的拒绝服务风险",
               },
               {
-                icon: <BarChart3 className="w-5 h-5" />,
-                title: "圈复杂度分析",
-                desc: "计算文件和函数的圈复杂度，识别高复杂度模块",
-              },
-              {
-                icon: <MessageSquare className="w-5 h-5" />,
-                title: "幻数检测",
-                desc: "发现未命名的字面量数值，建议提取为具名常量",
-              },
-              {
-                icon: <MessageSquare className="w-5 h-5" />,
-                title: "注释覆盖率审计",
-                desc: "评估文件注释覆盖率，识别低注释模块",
+                icon: <EyeOff className="w-5 h-5" />,
+                title: "敏感数据日志",
+                desc: "console.log / logger 输出中是否包含密码、Token",
               },
             ].map((cap, idx) => (
-              <Card
-                key={idx}
-                className="audit-card hover:border-primary/30"
-              >
+              <Card key={idx} className="audit-card hover:border-red-400/30">
                 <CardContent className="p-0 space-y-3">
-                  <div className="p-2 rounded-lg bg-primary/10 text-primary w-fit">
+                  <div className="p-2 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 w-fit">
                     {cap.icon}
                   </div>
                   <h3 className="font-semibold">{cap.title}</h3>
@@ -353,14 +315,14 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Example Link */}
+          {/* Switch to Quality Audit */}
           <div className="text-center pt-4">
             <button
-              onClick={() => navigate("/examples")}
+              onClick={() => navigate("/")}
               className="text-sm text-primary hover:underline inline-flex items-center gap-1.5"
             >
-              <Search className="w-4 h-4" />
-              查看示例审计报告，了解输出格式
+              <ShieldCheck className="w-4 h-4" />
+              切换到代码质量审查
             </button>
           </div>
         </div>
@@ -370,13 +332,12 @@ export default function HomePage() {
       {phase === "scanning" && (
         <div className="max-w-xl mx-auto space-y-8 py-16">
           <div className="text-center space-y-4">
-            <div className="inline-flex p-4 rounded-2xl bg-primary/10">
-              <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            <div className="inline-flex p-4 rounded-2xl bg-red-500/10">
+              <Loader2 className="w-12 h-12 text-red-600 dark:text-red-400 animate-spin" />
             </div>
-            <h2 className="text-2xl font-bold">正在扫描项目...</h2>
+            <h2 className="text-2xl font-bold">正在扫描安全漏洞...</h2>
             <p className="text-muted-foreground">{currentStep}</p>
           </div>
-
           <div className="space-y-3">
             <Progress value={scanProgress} className="h-3" />
             <div className="flex justify-between text-sm text-muted-foreground">
@@ -384,22 +345,21 @@ export default function HomePage() {
               <span>{Math.round(scanProgress)}%</span>
             </div>
           </div>
-
           <div className="space-y-2">
-            {SCAN_STEPS.map((step, idx) => {
+            {SECURITY_SCAN_STEPS.map((step, idx) => {
               const isDone =
-                scanProgress >= ((idx + 1) / SCAN_STEPS.length) * 100;
+                scanProgress >= ((idx + 1) / SECURITY_SCAN_STEPS.length) * 100;
               const isCurrent =
                 !isDone &&
-                scanProgress >= (idx / SCAN_STEPS.length) * 100;
+                scanProgress >= (idx / SECURITY_SCAN_STEPS.length) * 100;
               return (
                 <div
                   key={idx}
                   className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all ${
                     isDone
-                      ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                      ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
                       : isCurrent
-                      ? "bg-primary/5 text-primary"
+                      ? "bg-red-500/5 text-red-600"
                       : "text-muted-foreground"
                   }`}
                 >
@@ -424,29 +384,37 @@ export default function HomePage() {
           {/* Result Header */}
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
-                <FileCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
+              <div className="p-3 rounded-xl bg-red-100 dark:bg-red-900/30">
+                <ShieldAlert className="w-8 h-8 text-red-600 dark:text-red-400" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold">
-                  {result.projectName}
-                </h2>
+                <h2 className="text-2xl font-bold">{result.projectName}</h2>
                 <p className="text-sm text-muted-foreground">
-                  扫描完成 · {result.totalFiles} 个文件 · {result.stats.totalLines.toLocaleString()} 行代码
+                  安全扫描完成 · {result.totalFiles} 个文件 ·{" "}
+                  {result.stats.totalLines.toLocaleString()} 行代码
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => {
-                setPhase("idle");
-                setResult(null);
-                setItems([]);
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-muted transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              扫描新项目
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setPhase("idle");
+                  setResult(null);
+                  setItems([]);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-muted transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                重新扫描
+              </button>
+              <button
+                onClick={() => navigate("/")}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                质量审查
+              </button>
+            </div>
           </div>
 
           {/* Stats Row */}
@@ -458,16 +426,16 @@ export default function HomePage() {
               subtitle="全部检查项"
             />
             <StatCard
-              title="严重"
+              title="高危"
               value={criticalCount}
               icon={<AlertTriangle className="w-5 h-5" />}
               subtitle="需立即处理"
             />
             <StatCard
-              title="建议"
+              title="警告"
               value={warningCount}
               icon={<AlertCircle className="w-5 h-5" />}
-              subtitle="建议优化"
+              subtitle="建议修复"
             />
             <StatCard
               title="提示"
@@ -479,56 +447,46 @@ export default function HomePage() {
               title="已处理"
               value={doneCount}
               icon={<CheckCircle2 className="w-5 h-5" />}
-              subtitle="已完成清理"
+              subtitle="已完成修复"
             />
             <StatCard
-              title="完成率"
+              title="修复率"
               value={progressPercent}
               icon={<Zap className="w-5 h-5" />}
-              subtitle="清理进度 %"
+              subtitle="修复进度 %"
             />
           </div>
-
-          {/* Complexity Stats */}
-          {result && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard
-                title="总圈复杂度"
-                value={result.complexity.totalCyclomatic}
-                icon={<BarChart3 className="w-5 h-5" />}
-                subtitle="Cyclomatic"
-              />
-              <StatCard
-                title="平均/文件"
-                value={result.complexity.avgPerFile}
-                icon={<BarChart3 className="w-5 h-5" />}
-                subtitle="复杂度均值"
-              />
-              <StatCard
-                title="注释覆盖率"
-                value={`${result.complexity.commentCoverage}%`}
-                icon={<MessageSquare className="w-5 h-5" />}
-                subtitle="项目级"
-              />
-              <StatCard
-                title="信息级"
-                value={noticeCount}
-                icon={<MessageSquare className="w-5 h-5" />}
-                subtitle="参考信息"
-              />
-            </div>
-          )}
 
           {/* File Stats */}
           <Card>
             <CardContent className="p-4">
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center">
                 {[
-                  { label: "JS/TS 文件", value: result.stats.jsFiles, color: "text-blue-600 dark:text-blue-400" },
-                  { label: "JSON 文件", value: result.stats.jsonFiles, color: "text-green-600 dark:text-green-400" },
-                  { label: "SQL 文件", value: result.stats.sqlFiles, color: "text-purple-600 dark:text-purple-400" },
-                  { label: "Env 文件", value: result.stats.envFiles, color: "text-amber-600 dark:text-amber-400" },
-                  { label: "其他", value: result.stats.otherFiles, color: "text-gray-600 dark:text-gray-400" },
+                  {
+                    label: "JS/TS 文件",
+                    value: result.stats.jsFiles,
+                    color: "text-blue-600 dark:text-blue-400",
+                  },
+                  {
+                    label: "JSON 文件",
+                    value: result.stats.jsonFiles,
+                    color: "text-green-600 dark:text-green-400",
+                  },
+                  {
+                    label: "SQL 文件",
+                    value: result.stats.sqlFiles,
+                    color: "text-purple-600 dark:text-purple-400",
+                  },
+                  {
+                    label: "Env 文件",
+                    value: result.stats.envFiles,
+                    color: "text-amber-600 dark:text-amber-400",
+                  },
+                  {
+                    label: "其他",
+                    value: result.stats.otherFiles,
+                    color: "text-gray-600 dark:text-gray-400",
+                  },
                 ].map((s, i) => (
                   <div key={i} className="space-y-1">
                     <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
@@ -542,7 +500,7 @@ export default function HomePage() {
           {/* Progress Bar */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">整体清理进度</span>
+              <span className="text-muted-foreground">整体修复进度</span>
               <span className="font-medium">{progressPercent}%</span>
             </div>
             <Progress value={progressPercent} className="h-2.5" />
@@ -561,10 +519,10 @@ export default function HomePage() {
                     全部 ({totalItems})
                   </TabsTrigger>
                   <TabsTrigger value="critical" className="text-xs">
-                    严重 ({criticalCount})
+                    高危 ({criticalCount})
                   </TabsTrigger>
                   <TabsTrigger value="warning" className="text-xs">
-                    建议 ({warningCount})
+                    警告 ({warningCount})
                   </TabsTrigger>
                   <TabsTrigger value="info" className="text-xs">
                     提示 ({infoCount})
@@ -576,7 +534,7 @@ export default function HomePage() {
                     待处理 ({totalItems - doneCount})
                   </TabsTrigger>
                   <TabsTrigger value="done" className="text-xs">
-                    已完成 ({doneCount})
+                    已修复 ({doneCount})
                   </TabsTrigger>
                 </TabsList>
 
@@ -584,7 +542,7 @@ export default function HomePage() {
                   {Object.entries(grouped).map(([category, catItems]) => (
                     <div key={category} className="space-y-4">
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                        <div className="p-2 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400">
                           <ScanLine className="w-5 h-5" />
                         </div>
                         <div>
@@ -612,7 +570,7 @@ export default function HomePage() {
                   {filteredItems.length === 0 && (
                     <div className="text-center py-20">
                       <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold">全部完成</h3>
+                      <h3 className="text-lg font-semibold">全部修复</h3>
                       <p className="text-sm text-muted-foreground mt-1">
                         当前筛选条件下没有待处理项
                       </p>
@@ -626,82 +584,86 @@ export default function HomePage() {
                 <AccordionItem value="guidelines">
                   <AccordionTrigger className="text-base font-semibold hover:no-underline">
                     <span className="flex items-center gap-2">
-                      <FileCode className="w-5 h-5 text-primary" />
-                      审计方法论 &amp; 确认废弃的判定标准
+                      <Shield className="w-5 h-5 text-primary" />
+                      安全审计方法论 &amp; OWASP 参考
                     </span>
                   </AccordionTrigger>
                   <AccordionContent className="space-y-4 pt-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Card className="border-l-4 border-l-blue-500">
+                      <Card className="border-l-4 border-l-red-500">
                         <CardContent className="p-4 space-y-2">
                           <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <Code2 className="w-4 h-4 text-blue-500" />
-                            静态分析工具
+                            <Database className="w-4 h-4 text-red-500" />
+                            注入漏洞（OWASP Top 10 #1）
                           </h4>
                           <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• depcheck — 检测未使用的 npm 依赖</li>
-                            <li>• eslint (no-unused-vars) — 未使用变量</li>
-                            <li>• VS Code "Find All References" — 函数引用追踪</li>
-                            <li>• grep / ripgrep — 全局文本搜索</li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-l-4 border-l-green-500">
-                        <CardContent className="p-4 space-y-2">
-                          <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <Database className="w-4 h-4 text-green-500" />
-                            数据库验证
-                          </h4>
-                          <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• sqlite3 直接查询表最后写入时间</li>
-                            <li>• 对比 schema.sql 与代码中的查询语句</li>
-                            <li>• 检查外键依赖和索引使用情况</li>
-                            <li>• 查看 ORM 模型定义与实际表结构</li>
+                            <li>• SQL 注入：使用参数化查询 / ORM</li>
+                            <li>• 命令注入：使用 execFile 参数数组</li>
+                            <li>• eval 注入：用 JSON.parse 替代</li>
+                            <li>• LDAP / XPath 注入：白名单校验</li>
                           </ul>
                         </CardContent>
                       </Card>
                       <Card className="border-l-4 border-l-amber-500">
                         <CardContent className="p-4 space-y-2">
                           <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <Route className="w-4 h-4 text-amber-500" />
-                            路由验证
+                            <Lock className="w-4 h-4 text-amber-500" />
+                            认证与授权（OWASP Top 10 #7）
                           </h4>
                           <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• Nginx access.log 分析端点请求频率</li>
-                            <li>• 前端代码搜索 API 端点调用</li>
-                            <li>• 对比路由注册与控制器实现</li>
-                            <li>• 检查测试用例中的路由覆盖</li>
+                            <li>• 密码：bcrypt / scrypt / argon2id</li>
+                            <li>• JWT：设置 expiresIn + refresh token</li>
+                            <li>• Session：HttpOnly + Secure + SameSite</li>
+                            <li>• CSRF：Token 或 SameSite Cookie</li>
+                          </ul>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-l-4 border-l-blue-500">
+                        <CardContent className="p-4 space-y-2">
+                          <h4 className="font-semibold text-sm flex items-center gap-2">
+                            <Bug className="w-4 h-4 text-blue-500" />
+                            XSS 防护（OWASP Top 10 #3）
+                          </h4>
+                          <ul className="text-sm text-muted-foreground space-y-1">
+                            <li>• 输出编码：textContent 替代 innerHTML</li>
+                            <li>• CSP：Content-Security-Policy 头</li>
+                            <li>• 输入校验：白名单 + 类型校验</li>
+                            <li>• DOMPurify：必须插入 HTML 时净化</li>
                           </ul>
                         </CardContent>
                       </Card>
                       <Card className="border-l-4 border-l-purple-500">
                         <CardContent className="p-4 space-y-2">
                           <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <GitMerge className="w-4 h-4 text-purple-500" />
-                            Git 历史验证
+                            <Globe className="w-4 h-4 text-purple-500" />
+                            依赖与供应链（OWASP Top 10 #6）
                           </h4>
                           <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• git log --follow 查看文件修改历史</li>
-                            <li>• git blame 定位代码最后修改时间</li>
-                            <li>• 查看注释中的废弃标记日期</li>
-                            <li>• 对比 tag 版本间的变更</li>
+                            <li>• npm audit：定期扫描 CVE</li>
+                            <li>• Snyk / Dependabot：自动漏洞检测</li>
+                            <li>• 版本锁定：package-lock.json</li>
+                            <li>• 最小依赖：移除未使用的包</li>
                           </ul>
                         </CardContent>
                       </Card>
                     </div>
                     <div className="rounded-lg bg-muted/50 p-4">
                       <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                        <Shield className="w-4 h-4 text-primary" />
-                        删除前的安全检查清单
+                        <ShieldAlert className="w-4 h-4 text-red-600" />
+                        部署前安全检查清单
                       </h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
                         {[
-                          "确认代码中无引用（至少 2 种工具交叉验证）",
-                          "确认无运行时动态调用（字符串拼接 require/eval）",
-                          "确认无测试用例依赖",
-                          "确认数据库无外部工具直接读写",
-                          "已在独立分支操作，可随时回滚",
-                          "删除后在 staging 环境完整回归测试",
+                          "SQL 注入零处：所有查询参数化",
+                          "零处 eval / new Function / child_process.exec 拼接",
+                          "无硬编码密钥（gitleaks / truffleHog 扫描通过）",
+                          "CSP / X-Frame-Options / HSTS 响应头已配置",
+                          "CSRF Token 覆盖所有状态变更路由",
+                          "文件上传限制 MIME 白名单 + 文件头校验",
+                          "密码使用 bcrypt cost ≥ 12 或 argon2id",
+                          "JWT 设置 expiresIn ≤ 1h，refresh token ≤ 7d",
+                          "npm audit 零高危漏洞，或已评估并修复",
+                          "生产环境禁用 debug 模式，无 console.log 残留",
                         ].map((check, idx) => (
                           <div key={idx} className="flex items-start gap-2">
                             <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
@@ -716,10 +678,10 @@ export default function HomePage() {
             </div>
           ) : (
             <div className="text-center py-20">
-              <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold">未发现冗余代码</h3>
+              <ShieldCheck className="w-12 h-12 text-green-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold">未发现安全漏洞</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                扫描完成，你的项目代码结构良好，未发现明显问题
+                扫描完成，你的项目通过基础安全检测，继续保持！
               </p>
             </div>
           )}

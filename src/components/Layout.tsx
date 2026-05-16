@@ -1,13 +1,15 @@
 import { Link, useLocation } from "react-router";
-import { Shield, Home, BookOpen, Github } from "lucide-react";
+import { Shield, ShieldAlert, Home, BookOpen, Github } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   const navItems = [
-    { path: "/", label: "代码审计", icon: <Home className="w-4 h-4" /> },
-    { path: "/examples", label: "示例报告", icon: <BookOpen className="w-4 h-4" /> },
+    { path: "/", label: "代码质量审查", icon: <Home className="w-4 h-4" /> },
+    { path: "/security", label: "安全性审查", icon: <Shield className="w-4 h-4" /> },
+    { path: "/examples", label: "质量示例", icon: <BookOpen className="w-4 h-4" /> },
+    { path: "/security-examples", label: "安全示例", icon: <ShieldAlert className="w-4 h-4" /> },
   ];
 
   return (
@@ -26,7 +28,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   Node.js 代码审计
                 </h1>
                 <p className="text-xs text-muted-foreground hidden sm:block">
-                  冗余代码扫描 &amp; 历史功能残留排查
+                  代码质量审查 &amp; 安全性审查
                 </p>
               </div>
             </Link>
