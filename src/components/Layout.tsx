@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router";
-import { Shield, ShieldAlert, Home, BookOpen, Github } from "lucide-react";
+import { Shield, ShieldAlert, Home, BookOpen, Github, BarChart3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -11,6 +11,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { path: "/examples", label: "质量示例", icon: <BookOpen className="w-4 h-4" /> },
     { path: "/security-examples", label: "安全示例", icon: <ShieldAlert className="w-4 h-4" /> },
   ];
+
+  const isEvalActive = location.pathname.startsWith("/evaluation");
 
   return (
     <div className="min-h-screen bg-background">
@@ -52,6 +54,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   </Link>
                 );
               })}
+              <a
+                href="./evaluation/index.html"
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  isEvalActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span className="hidden sm:inline">评估报告</span>
+              </a>
             </nav>
 
             {/* Tech Stack Badge */}

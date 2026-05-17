@@ -6,6 +6,60 @@
 
 ---
 
+## 🆕 新增：平台功能评估报告
+
+基于 **840 条 Ground Truth 真值** 的系统化功能测试评估已完成，结果已集成到网站导航栏「**评估报告**」入口。
+
+### 测试概况
+
+| 项目 | 数据 |
+|------|------|
+| **测试轮次** | 20 轮（错误密度 1→20 递增） |
+| **测试样本** | 80 份测试项目（40 安全 + 40 质量） |
+| **真值记录** | 840 条（含精确行号、错误类型、CWE、隐蔽度） |
+| **检出记录** | 1,293 条 |
+
+### 评估核心指标
+
+| 指标 | 值 | 说明 |
+|------|-----|------|
+| **Recall（召回率）** | 36.9% | 每 100 个真实漏洞检出约 37 个 |
+| **Precision（精确率）** | 24.0% | 每 100 条报告中约 24 个为真阳性 |
+| **F1-Score** | 29.1% | 综合性能指标 |
+| **FPR（假阳性率）** | 100% | 对 clean root 代码存在大量误报 |
+| **FN（漏报）** | 530 条 | 占总真值的 63.1% |
+
+### 10 个评估维度
+
+1. **总体性能** — Accuracy / Precision / Recall / F1 / FPR / FNR
+2. **轮次递增曲线** — 错误密度 1→20 时 Recall/Precision/FPR/F1 变化趋势
+3. **错误类型矩阵** — 20 种类型 × [Precision, Recall, F1] 热力图
+4. **语言/技术栈对比** — 按 10 种语言分组 Recall 柱状图
+5. **隐蔽度影响** — 低/中/高隐蔽度 Recall 对比
+6. **安全 vs 质量** — 两大类雷达图对比
+7. **严重等级加权** — 高危/中危/低危 Recall 柱状图
+8. **OWASP Benchmark 象限** — TPR-FPR 散点图（理想区标注）
+9. **定位精度** — 报告行号与真实行号的 MAE / 标准差 / 偏差分布直方图
+10. **漏报共现模式** — 最容易同时漏报的类型组合 Top 20
+
+### 评估报告文件
+
+| 文件 | 说明 |
+|------|------|
+| `evaluation/index.html` | 交互式评估报告（ECharts 图表，可浏览器直接打开） |
+| `evaluation/metrics_tables.md` | 全部指标原始数据表格 |
+| `evaluation/chart_data.json` | D2~D10 图表结构化数据 |
+| `evaluation/missed_bugs.md` | 530 条漏报清单（按轮次分组） |
+
+### 已知问题与改进方向
+
+- **FP 严重**：扫描器对 clean root 代码（无错误的基线项目）仍报告大量死函数、幻数、CSRF 缺失等假阳性
+- **漏报集中**：高隐蔽度错误（竞态条件、间接 taint 传播）检出率显著低于低隐蔽度错误
+- **类型盲区**：部分错误类型（如 SSRF、ReDoS、并发安全问题）检出率低于 30%
+- **改进建议**：加强高隐蔽漏洞检测能力；优化类型匹配准确率；提升跨文件控制流分析能力
+
+---
+
 ## ✨ 双模式功能架构
 
 ### 🛡️ 代码质量审查（Quality Audit）
@@ -242,10 +296,19 @@ interface AuditItem {
 npm run build
 
 # 2. 部署到 GitHub Pages（dist/ 目录）
-git push origin `git subtree split --prefix dist main`:gh-pages --force
+# 方式A: subtree push
+git subtree push --prefix dist origin gh-pages
+
+# 方式B: 强制覆盖部署（推荐，简单直接）
+cd /tmp && rm -rf deploy && mkdir deploy && cp -r /path/to/dist/* deploy/
+cd deploy && git init && git add . && git commit -m "deploy"
+git remote add origin git@github.com:MrLi-cpp/code-audit-dashboard.git
+git push origin HEAD:gh-pages --force
 ```
 
 > ⚠️ 本地开发验证：`npm run dev` → `http://localhost:5173/`
+>
+> ⚠️ 评估报告为独立静态 HTML，构建后位于 `dist/evaluation/` 目录下，随主站一起部署
 
 ---
 

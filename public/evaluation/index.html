@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>代码审查平台功能评估报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+:root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --muted: #94a3b8; --primary: #3b82f6; --success: #22c55e; --warning: #f59e0b; --danger: #ef4444; }
+@media (prefers-color-scheme: light) { :root { --bg: #f8fafc; --card: #fff; --text: #1e293b; --muted: #64748b; } }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+.container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 28px; margin-bottom: 8px; }
+h2 { font-size: 20px; margin-top: 32px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #334155; }
+.card { background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.kpi { text-align: center; padding: 16px; }
+.kpi .value { font-size: 32px; font-weight: 700; }
+.kpi .label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.kpi-good .value { color: var(--success); }
+.kpi-bad .value { color: var(--danger); }
+.kpi-warn .value { color: var(--warning); }
+.chart { width: 100%; height: 400px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #334155; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+tr:hover { background: rgba(255,255,255,0.03); }
+.small { font-size: 12px; color: var(--muted); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🔍 代码审查平台功能评估报告</h1>
+<p class="small">生成时间：2026/5/17 19:28:06 · 测试样本：840 条 Ground Truth · 审查报告：1293 条检出</p>
+
+<!-- D1 总体性能 -->
+<div class="card">
+<h2>📊 D1 总体性能</h2>
+<div class="kpi-grid">
+  <div class="kpi kpi-good"><div class="value">36.9%</div><div class="label">Accuracy</div></div>
+  <div class="kpi kpi-good"><div class="value">24.0%</div><div class="label">Precision</div></div>
+  <div class="kpi kpi-warn"><div class="value">36.9%</div><div class="label">Recall</div></div>
+  <div class="kpi kpi-warn"><div class="value">29.1%</div><div class="label">F1-Score</div></div>
+  <div class="kpi kpi-bad"><div class="value">100.0%</div><div class="label">FPR</div></div>
+  <div class="kpi kpi-bad"><div class="value">63.1%</div><div class="label">FNR</div></div>
+  <div class="kpi"><div class="value">310</div><div class="label">TP (真阳性)</div></div>
+  <div class="kpi"><div class="value">983</div><div class="label">FP (假阳性)</div></div>
+  <div class="kpi"><div class="value">530</div><div class="label">FN (假阴性/漏报)</div></div>
+</div>
+</div>
+
+<!-- D2 轮次递增曲线 -->
+<div class="card">
+<h2>📈 D2 轮次递增曲线 (错误密度 1→20)</h2>
+<div id="chart-d2" class="chart"></div>
+</div>
+
+<!-- D3 错误类型矩阵 -->
+<div class="card">
+<h2>🎯 D3 错误类型检出矩阵</h2>
+<div id="chart-d3" class="chart"></div>
+<table>
+<tr><th>错误类型</th><th>GT</th><th>TP</th><th>FP</th><th>Precision</th><th>Recall</th><th>F1</th></tr>
+<tr><td>重复代码</td><td>72</td><td>70</td><td>0</td><td>100.0%</td><td>97.2%</td><td>98.6%</td></tr><tr><td>魔法数字</td><td>71</td><td>69</td><td>237</td><td>22.5%</td><td>97.2%</td><td>36.6%</td></tr><tr><td>CSRF/CORS</td><td>69</td><td>53</td><td>0</td><td>100.0%</td><td>76.8%</td><td>86.9%</td></tr><tr><td>XSS</td><td>67</td><td>0</td><td>0</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>死代码</td><td>61</td><td>41</td><td>663</td><td>5.8%</td><td>67.2%</td><td>10.7%</td></tr><tr><td>资源未释放</td><td>57</td><td>9</td><td>0</td><td>100.0%</td><td>15.8%</td><td>27.3%</td></tr><tr><td>路径遍历</td><td>54</td><td>4</td><td>3</td><td>57.1%</td><td>7.4%</td><td>13.1%</td></tr><tr><td>日志敏感信息泄露</td><td>50</td><td>2</td><td>0</td><td>100.0%</td><td>4.0%</td><td>7.7%</td></tr><tr><td>圈复杂度过高</td><td>48</td><td>7</td><td>5</td><td>58.3%</td><td>14.6%</td><td>23.3%</td></tr><tr><td>硬编码密钥</td><td>40</td><td>3</td><td>35</td><td>7.9%</td><td>7.5%</td><td>7.7%</td></tr><tr><td>SQL注入</td><td>37</td><td>0</td><td>0</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>SSRF</td><td>36</td><td>2</td><td>0</td><td>100.0%</td><td>5.6%</td><td>10.5%</td></tr><tr><td>弱加密</td><td>35</td><td>2</td><td>0</td><td>100.0%</td><td>5.7%</td><td>10.8%</td></tr><tr><td>不安全的反序列化</td><td>31</td><td>29</td><td>0</td><td>100.0%</td><td>93.5%</td><td>96.7%</td></tr><tr><td>JWT认证绕过</td><td>30</td><td>0</td><td>40</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>API设计违规</td><td>22</td><td>0</td><td>0</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>命令注入</td><td>21</td><td>19</td><td>0</td><td>100.0%</td><td>90.5%</td><td>95.0%</td></tr><tr><td>并发安全问题</td><td>19</td><td>0</td><td>0</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>空指针/边界</td><td>16</td><td>0</td><td>0</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>异常吞没</td><td>4</td><td>0</td><td>0</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr>
+</table>
+</div>
+
+<div class="two-col">
+<!-- D4 语言对比 -->
+<div class="card">
+<h2>🌐 D4 语言/技术栈对比</h2>
+<div id="chart-d4" class="chart" style="height:300px"></div>
+</div>
+
+<!-- D5 隐蔽度 -->
+<div class="card">
+<h2>🕵️ D5 隐蔽度影响</h2>
+<div id="chart-d5" class="chart" style="height:300px"></div>
+</div>
+</div>
+
+<div class="two-col">
+<!-- D6 安全 vs 质量 -->
+<div class="card">
+<h2>⚖️ D6 安全 vs 质量</h2>
+<div id="chart-d6" class="chart" style="height:300px"></div>
+<table>
+<tr><th>大类</th><th>GT</th><th>TP</th><th>Recall</th><th>F1</th></tr>
+<tr><td>安全</td><td>420</td><td>112</td><td>26.7%</td><td>36.7%</td></tr><tr><td>质量</td><td>420</td><td>198</td><td>47.1%</td><td>26.0%</td></tr>
+</table>
+</div>
+
+<!-- D7 严重等级 -->
+<div class="card">
+<h2>🔥 D7 严重等级加权 Recall</h2>
+<div id="chart-d7" class="chart" style="height:300px"></div>
+<table>
+<tr><th>严重等级</th><th>GT</th><th>TP</th><th>Recall</th></tr>
+<tr><td>高危</td><td>210</td><td>52</td><td>24.8%</td></tr><tr><td>中危</td><td>210</td><td>60</td><td>28.6%</td></tr><tr><td>低危</td><td>420</td><td>198</td><td>47.1%</td></tr>
+</table>
+</div>
+</div>
+
+<!-- D8 OWASP Benchmark -->
+<div class="card">
+<h2>📍 D8 OWASP Benchmark 象限</h2>
+<div id="chart-d8" class="chart"></div>
+<p class="small">坐标含义：X轴=FPR（假阳性率），Y轴=TPR（真阳性率）。理想位置为左上角(0, 1)。</p>
+</div>
+
+<!-- D9 定位精度 -->
+<div class="card">
+<h2>🎯 D9 定位精度</h2>
+<div class="two-col">
+<div>
+<p>匹配数：<strong>310</strong> 条</p>
+<p>平均绝对偏差 (MAE)：<strong>0.89</strong> 行</p>
+<p>标准差：<strong>1.91</strong> 行</p>
+</div>
+<div id="chart-d9" class="chart" style="height:250px"></div>
+</div>
+</div>
+
+<!-- D10 漏报模式 -->
+<div class="card">
+<h2>🔍 D10 漏报共现模式 (Top 20)</h2>
+<div id="chart-d10" class="chart"></div>
+</div>
+
+<!-- 结论 -->
+<div class="card">
+<h2>💡 结论与建议</h2>
+<ul>
+<li><strong>总体表现</strong>：Recall 36.9%，Precision 24.0%，漏报率较高（530 条 FN）。</li>
+<li><strong>轮次趋势</strong>：随着错误密度增加，检出压力增大，Recall 呈波动趋势。</li>
+<li><strong>类型盲区</strong>：XSS、资源未释放、路径遍历、日志敏感信息泄露、圈复杂度过高、硬编码密钥、SQL注入、SSRF、弱加密、JWT认证绕过、API设计违规、并发安全问题、空指针/边界、异常吞没 检出率低于 30%。</li>
+<li><strong>隐蔽度影响</strong>：高隐蔽错误 Recall 36.2%，明显低于低隐蔽 36.3%。</li>
+<li><strong>改进建议</strong>：加强高隐蔽漏洞检测能力；优化类型匹配准确率；提升多文件跨函数分析能力。</li>
+</ul>
+</div>
+
+</div>
+
+<script>
+// D2 折线图
+const d2Chart = echarts.init(document.getElementById('chart-d2'));
+d2Chart.setOption({
+  tooltip: { trigger: 'axis' },
+  legend: { data: ['Recall', 'Precision', 'F1', 'FPR'], textStyle: { color: '#94a3b8' } },
+  xAxis: { type: 'category', data: ["R01","R02","R03","R04","R05","R06","R07","R08","R09","R10","R11","R12","R13","R14","R15","R16","R17","R18","R19","R20"], axisLabel: { color: '#94a3b8' } },
+  yAxis: { type: 'value', max: 1, axisLabel: { color: '#94a3b8', formatter: v => (v*100).toFixed(0)+'%' } },
+  series: [
+    { name: 'Recall', type: 'line', data: [0.25,0.75,0.6666666666666666,0.5,0.3,0,0.6071428571428571,0.25,0.4444444444444444,0.025,0.25,0.041666666666666664,0.019230769230769232,0.7142857142857143,0.6166666666666667,0.203125,0.6617647058823529,0.5,0.42105263157894735,0.275], smooth: true, itemStyle: { color: '#22c55e' } },
+    { name: 'Precision', type: 'line', data: [0.025,0.13043478260869565,0.17391304347826086,0.18181818181818182,0.13333333333333333,0,0.21794871794871795,0.12903225806451613,0.25396825396825395,0.027777777777777776,0.23404255319148937,0.044444444444444446,0.013513513513513514,0.41237113402061853,0.38144329896907214,0.14285714285714285,0.4639175257731959,0.45,0.3368421052631579,0.2972972972972973], smooth: true, itemStyle: { color: '#3b82f6' } },
+    { name: 'F1', type: 'line', data: [0.045454545454545456,0.22222222222222218,0.27586206896551724,0.26666666666666666,0.18461538461538463,0,0.3207547169811321,0.1702127659574468,0.32323232323232326,0.026315789473684213,0.24175824175824176,0.043010752688172046,0.015873015873015872,0.5228758169934641,0.4713375796178344,0.16774193548387095,0.5454545454545455,0.4736842105263158,0.3742690058479532,0.28571428571428575], smooth: true, itemStyle: { color: '#f59e0b' } },
+    { name: 'FPR', type: 'line', data: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], smooth: true, itemStyle: { color: '#ef4444' } },
+  ],
+  grid: { left: 50, right: 30, top: 40, bottom: 30 }
+});
+
+// D3 热力图
+const d3Chart = echarts.init(document.getElementById('chart-d3'));
+const d3Types = ["重复代码","魔法数字","CSRF/CORS","XSS","死代码","资源未释放","路径遍历","日志敏感信息泄露","圈复杂度过高","硬编码密钥","SQL注入","SSRF","弱加密","不安全的反序列化","JWT认证绕过"];
+const d3Data = [[0,0,"97.2"],[1,0,"97.2"],[2,0,"76.8"],[3,0,"0.0"],[4,0,"67.2"],[5,0,"15.8"],[6,0,"7.4"],[7,0,"4.0"],[8,0,"14.6"],[9,0,"7.5"],[10,0,"0.0"],[11,0,"5.6"],[12,0,"5.7"],[13,0,"93.5"],[14,0,"0.0"]];
+d3Chart.setOption({
+  tooltip: { formatter: p => d3Types[p.value[0]] + ' Recall: ' + p.value[2] + '%' },
+  xAxis: { type: 'category', data: ['Recall'], axisLabel: { color: '#94a3b8' } },
+  yAxis: { type: 'category', data: d3Types, axisLabel: { color: '#94a3b8', width: 120, overflow: 'truncate' } },
+  visualMap: { min: 0, max: 100, calculable: true, orient: 'horizontal', left: 'center', bottom: 0, inRange: { color: ['#ef4444', '#f59e0b', '#22c55e'] }, textStyle: { color: '#94a3b8' } },
+  series: [{ name: 'Recall', type: 'heatmap', data: d3Data, label: { show: true, formatter: p => p.value[2] + '%' } }],
+  grid: { left: 150, right: 30, top: 20, bottom: 60 }
+});
+
+// D4 柱状图
+const d4Chart = echarts.init(document.getElementById('chart-d4'));
+d4Chart.setOption({
+  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+  xAxis: { type: 'category', data: ["JavaScript"], axisLabel: { color: '#94a3b8', rotate: 30 } },
+  yAxis: { type: 'value', max: 1, axisLabel: { color: '#94a3b8', formatter: v => (v*100).toFixed(0)+'%' } },
+  series: [{ name: 'Recall', type: 'bar', data: [0.36904761904761907], itemStyle: { color: '#3b82f6' } }],
+  grid: { left: 50, right: 20, top: 20, bottom: 60 }
+});
+
+// D5 柱状图
+const d5Chart = echarts.init(document.getElementById('chart-d5'));
+d5Chart.setOption({
+  tooltip: { trigger: 'axis' },
+  xAxis: { type: 'category', data: ["低","中","高"], axisLabel: { color: '#94a3b8' } },
+  yAxis: { type: 'value', max: 1, axisLabel: { color: '#94a3b8', formatter: v => (v*100).toFixed(0)+'%' } },
+  series: [{ name: 'Recall', type: 'bar', data: [0.3630952380952381,0.375,0.3620689655172414], itemStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1, [{offset:0, color:'#22c55e'}, {offset:1, color:'#ef4444'}]) } }],
+  grid: { left: 50, right: 20, top: 20, bottom: 30 }
+});
+
+// D6 雷达图
+const d6Chart = echarts.init(document.getElementById('chart-d6'));
+d6Chart.setOption({
+  radar: { indicator: [{name:'Precision', max:1}, {name:'Recall', max:1}, {name:'F1', max:1}, {name:'检出率', max:1}] },
+  series: [{ type: 'radar', data: [
+    { value: [0.5894736842105263, 0.26666666666666666, 0.3672131147540983, 0.26666666666666666], name: '安全' },
+    { value: [0.17951042611060744, 0.4714285714285714, 0.26001313197636244, 0.4714285714285714], name: '质量' }
+  ]}]
+});
+
+// D7
+const d7Chart = echarts.init(document.getElementById('chart-d7'));
+d7Chart.setOption({
+  tooltip: { trigger: 'axis' },
+  xAxis: { type: 'category', data: ["高危","中危","低危"], axisLabel: { color: '#94a3b8' } },
+  yAxis: { type: 'value', max: 1, axisLabel: { color: '#94a3b8', formatter: v => (v*100).toFixed(0)+'%' } },
+  series: [{ name: 'Recall', type: 'bar', data: [0.24761904761904763,0.2857142857142857,0.4714285714285714], itemStyle: { color: '#f59e0b' } }],
+  grid: { left: 50, right: 20, top: 20, bottom: 30 }
+});
+
+// D8 散点图
+const d8Chart = echarts.init(document.getElementById('chart-d8'));
+d8Chart.setOption({
+  xAxis: { name: 'FPR', max: 1, axisLabel: { color: '#94a3b8' } },
+  yAxis: { name: 'TPR', max: 1, axisLabel: { color: '#94a3b8' } },
+  series: [{ type: 'scatter', data: [[1.0000, 0.3690]], symbolSize: 20, itemStyle: { color: '#ef4444' }, label: { show: true, formatter: '当前工具', position: 'top', color: '#e2e8f0' } }],
+  graphic: [
+    { type: 'rect', left: '5%', top: '5%', shape: { width: '40%', height: '40%' }, style: { fill: 'rgba(34,197,94,0.1)' } },
+    { type: 'text', left: '8%', top: '8%', style: { text: '理想区 (低FPR 高TPR)', fill: '#22c55e', fontSize: 12 } }
+  ]
+});
+
+// D9 直方图
+const d9Chart = echarts.init(document.getElementById('chart-d9'));
+const d9Bins = { '0行': 0, '1行': 0, '2行': 0, '3行': 0, '>3行': 0 };
+[5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,2,0,0,0,0,0,2,3,3,0,2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,2,3,3,5,0,2,3,0,2,0,2,0,2,0,2,3,3,3,5,0,2,3,0,2,0,2,3,4,8,5,6,8,4,8,0,0,0,5,9,5,6,8,4,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,9,5,6,8,5,9,0,0,0,0,0,0,2,3,0,2,3,3,3,5,6,0,2,3,0,2,3,0,2,3,0,4,0,0,0,0,0,0,0,0,4,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0].forEach(d => { if (d <= 3) d9Bins[d + '行']++; else d9Bins['>3行']++; });
+d9Chart.setOption({
+  xAxis: { type: 'category', data: Object.keys(d9Bins), axisLabel: { color: '#94a3b8' } },
+  yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+  series: [{ type: 'bar', data: Object.values(d9Bins), itemStyle: { color: '#3b82f6' } }],
+  grid: { left: 40, right: 20, top: 20, bottom: 30 }
+});
+
+// D10
+const d10Chart = echarts.init(document.getElementById('chart-d10'));
+const d10Pairs = [{"pair":"XSS+XSS","count":403},{"pair":"路径遍历+路径遍历","count":292},{"pair":"资源未释放+资源未释放","count":244},{"pair":"SQL注入+SQL注入","count":232},{"pair":"日志敏感信息泄露+日志敏感信息泄露","count":226},{"pair":"圈复杂度过高+圈复杂度过高","count":219},{"pair":"SSRF+SSRF","count":175},{"pair":"弱加密+弱加密","count":171},{"pair":"硬编码密钥+硬编码密钥","count":157},{"pair":"API设计违规+API设计违规","count":153},{"pair":"JWT认证绕过+JWT认证绕过","count":78},{"pair":"空指针/边界+空指针/边界","count":66},{"pair":"死代码+死代码","count":46},{"pair":"并发安全问题+并发安全问题","count":43},{"pair":"CSRF/CORS+CSRF/CORS","count":11}];
+d10Chart.setOption({
+  xAxis: { type: 'category', data: d10Pairs.map(p => p.pair), axisLabel: { color: '#94a3b8', rotate: 45, fontSize: 10 } },
+  yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+  series: [{ type: 'bar', data: d10Pairs.map(p => p.count), itemStyle: { color: '#ef4444' } }],
+  grid: { left: 50, right: 20, top: 20, bottom: 100 }
+});
+
+window.addEventListener('resize', () => {
+  [d2Chart, d3Chart, d4Chart, d5Chart, d6Chart, d7Chart, d8Chart, d9Chart, d10Chart].forEach(c => c.resize());
+});
+</script>
+</body>
+</html>
