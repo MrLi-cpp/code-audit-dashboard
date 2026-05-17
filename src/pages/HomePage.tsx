@@ -11,6 +11,15 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -34,10 +43,10 @@ import {
   Loader2,
   ScanLine,
   FileCheck,
-  Search,
   BarChart3,
   MessageSquare,
-  ArrowRight,
+  Download,
+  Folder,
 } from "lucide-react";
 import type { AuditItem } from "@/types/audit";
 import type { ScannedProject } from "@/lib/scanner";
@@ -45,6 +54,159 @@ import { scanProject, SCAN_STEPS } from "@/lib/scanner";
 import { AuditItemCard } from "@/components/AuditItemCard";
 
 type ScanPhase = "idle" | "scanning" | "done";
+
+interface BatchResult {
+  id: string;
+  projectName: string;
+  displayName: string;
+  result: ScannedProject;
+  items: AuditItem[];
+  activeTab: string;
+}
+
+/* ───────── helpers ───────── */
+
+function groupFilesByFolder(files: FileList): Map<string, File[]> {
+  const groups = new Map<string, File[]>();
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const path = file.webkitRelativePath || file.name;
+    const folderName = path.split("/")[0] || "未命名项目";
+    if (!groups.has(folderName)) groups.set(folderName, []);
+    groups.get(folderName)!.push(file);
+  }
+  return groups;
+}
+
+function createFileList(files: File[]): FileList {
+  const dt = new DataTransfer();
+  files.forEach((f) => dt.items.add(f));
+  return dt.files;
+}
+
+function generateQualityReport(
+  displayName: string,
+  project: ScannedProject,
+  issues: AuditItem[]
+): string {
+  const now = new Date().toLocaleString("zh-CN");
+  const total = issues.length;
+  const critical = issues.filter((i) => i.severity === "critical").length;
+  const warning = issues.filter((i) => i.severity === "warning").length;
+  const info = issues.filter((i) => i.severity === "info").length;
+  const notice = issues.filter((i) => i.severity === "notice").length;
+  const done = issues.filter((i) => i.checked).length;
+  const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  let md = `# 代码质量审查报告 — ${displayName}\n\n`;
+  md += `> 生成时间：${now}\n\n`;
+  md += `---\n\n`;
+
+  md += `## 项目概览\n\n`;
+  md += `- **扫描文件数**：${project.totalFiles} 个\n`;
+  md += `- **代码总行数**：${project.stats.totalLines.toLocaleString()} 行\n`;
+  md += `- **发现问题总数**：${total} 个\n`;
+  md += `- **严重**：${critical} | **建议**：${warning} | **提示**：${info} | **信息**：${notice}\n`;
+  md += `- **已处理**：${done} / ${total}（完成率 ${progress}%）\n\n`;
+
+  md += `## 代码复杂度\n\n`;
+  md += `- **总圈复杂度**：${project.complexity.totalCyclomatic}\n`;
+  md += `- **平均/文件**：${project.complexity.avgPerFile}\n`;
+  md += `- **注释覆盖率**：${project.complexity.commentCoverage}%\n\n`;
+
+  md += `## 文件统计\n\n`;
+  md += `| 类型 | 数量 |\n`;
+  md += `|------|------|\n`;
+  md += `| JS/TS 文件 | ${project.stats.jsFiles} |\n`;
+  md += `| JSON 文件 | ${project.stats.jsonFiles} |\n`;
+  md += `| SQL 文件 | ${project.stats.sqlFiles} |\n`;
+  md += `| Env 文件 | ${project.stats.envFiles} |\n`;
+  md += `| 其他 | ${project.stats.otherFiles} |\n\n`;
+
+  if (total > 0) {
+    md += `## 问题详情\n\n`;
+    const grouped = issues.reduce<Record<string, AuditItem[]>>((acc, item) => {
+      if (!acc[item.category]) acc[item.category] = [];
+      acc[item.category].push(item);
+      return acc;
+    }, {});
+
+    Object.entries(grouped).forEach(([category, catItems]) => {
+      md += `### ${category}（${catItems.length} 项）\n\n`;
+      catItems.forEach((item) => {
+        const sevMap: Record<string, string> = {
+          critical: "严重",
+          warning: "建议",
+          info: "提示",
+          notice: "信息",
+        };
+        md += `#### [${sevMap[item.severity]}] ${item.title}\n\n`;
+        md += `- **位置**：\`${item.location}\`\n`;
+        md += `- **描述**：${item.description}\n`;
+        md += `- **影响**：${item.impact}\n`;
+        md += `- **建议操作**：${item.action}\n`;
+        md += `- **状态**：${item.checked ? "已处理 ✅" : "待处理 ⏳"}\n`;
+        if (item.assignee) md += `- **责任人**：${item.assignee}\n`;
+        if (item.effortHours) md += `- **预估工时**：${item.effortHours}h\n`;
+        md += `- **代码片段**：\n\n`;
+        md += `\`\`\`js\n${item.codeSnippet}\n\`\`\`\n\n`;
+      });
+    });
+  } else {
+    md += `## 问题详情\n\n未发现冗余代码，项目代码结构良好。\n\n`;
+  }
+
+  md += `---\n\n`;
+  md += `## 审计方法论摘要\n\n`;
+  md += `本次审查基于静态分析，涵盖以下维度：\n\n`;
+  md += `1. **未使用导入检测** — 扫描 require/import 语句中未被引用的模块\n`;
+  md += `2. **死函数识别** — 发现定义但未被调用的函数和方法\n`;
+  md += `3. **注释代码块** — 检测被注释掉的废弃代码段\n`;
+  md += `4. **依赖分析** — 对比 package.json 与实际使用\n`;
+  md += `5. **环境变量审计** — 检查 .env 中未使用的配置\n`;
+  md += `6. **重复逻辑检测** — 发现多处出现的相似代码模式\n`;
+  md += `7. **圈复杂度分析** — 计算文件和函数的复杂度\n`;
+  md += `8. **幻数检测** — 发现未命名的字面量数值\n`;
+  md += `9. **注释覆盖率审计** — 评估文件注释覆盖情况\n\n`;
+  md += `> 本报告由 CodeAudit Dashboard 自动生成。\n`;
+
+  return md;
+}
+
+async function downloadWithPicker(content: string, suggestedName: string) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const picker = (window as any).showSaveFilePicker;
+    if (picker) {
+      const handle = await picker({
+        suggestedName,
+        types: [
+          {
+            description: "Markdown 文件",
+            accept: { "text/markdown": [".md"] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+    } else {
+      const blob = new Blob([content], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = suggestedName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  } catch (err) {
+    console.warn("Download cancelled", err);
+  }
+}
+
+/* ───────── StatCard ───────── */
 
 function StatCard({
   title,
@@ -66,14 +228,163 @@ function StatCard({
             <p className="text-3xl font-bold tracking-tight">{value}</p>
             <p className="text-xs text-muted-foreground">{subtitle}</p>
           </div>
-          <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
-            {icon}
-          </div>
+          <div className="p-2.5 rounded-lg bg-primary/10 text-primary">{icon}</div>
         </div>
       </CardContent>
     </Card>
   );
 }
+
+/* ───────── SubResultViewer ───────── */
+
+function SubResultViewer({
+  batch,
+  onToggleItem,
+  onChangeTab,
+}: {
+  batch: BatchResult;
+  onToggleItem: (batchId: string, itemId: string) => void;
+  onChangeTab: (batchId: string, tab: string) => void;
+}) {
+  const { result, items, activeTab, id, displayName } = batch;
+
+  const filteredItems =
+    activeTab === "all"
+      ? items
+      : items.filter((item) => {
+          if (activeTab === "critical") return item.severity === "critical";
+          if (activeTab === "warning") return item.severity === "warning";
+          if (activeTab === "info") return item.severity === "info";
+          if (activeTab === "notice") return item.severity === "notice";
+          if (activeTab === "done") return item.checked;
+          if (activeTab === "pending") return !item.checked;
+          return true;
+        });
+
+  const totalItems = items.length;
+  const criticalCount = items.filter((i) => i.severity === "critical").length;
+  const warningCount = items.filter((i) => i.severity === "warning").length;
+  const infoCount = items.filter((i) => i.severity === "info").length;
+  const noticeCount = items.filter((i) => i.severity === "notice").length;
+  const doneCount = items.filter((i) => i.checked).length;
+  const progressPercent = totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0;
+
+  const grouped = filteredItems.reduce<Record<string, AuditItem[]>>((acc, item) => {
+    if (!acc[item.category]) acc[item.category] = [];
+    acc[item.category].push(item);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-xl bg-green-100 dark:bg-green-900/30">
+          <FileCheck className="w-6 h-6 text-green-600 dark:text-green-400" />
+        </div>
+        <div>
+          <h3 className="text-lg font-bold">{displayName}</h3>
+          <p className="text-sm text-muted-foreground">
+            {result.totalFiles} 个文件 · {result.stats.totalLines.toLocaleString()} 行 · {totalItems} 个问题
+          </p>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <StatCard title="总问题数" value={totalItems} icon={<FileSearch className="w-4 h-4" />} subtitle="全部" />
+        <StatCard title="严重" value={criticalCount} icon={<AlertTriangle className="w-4 h-4" />} subtitle="需立即处理" />
+        <StatCard title="建议" value={warningCount} icon={<AlertCircle className="w-4 h-4" />} subtitle="建议优化" />
+        <StatCard title="提示" value={infoCount} icon={<Info className="w-4 h-4" />} subtitle="参考信息" />
+        <StatCard title="已处理" value={doneCount} icon={<CheckCircle2 className="w-4 h-4" />} subtitle="已完成" />
+        <StatCard title="完成率" value={progressPercent} icon={<Zap className="w-4 h-4" />} subtitle="%" />
+      </div>
+
+      {/* File types */}
+      <Card>
+        <CardContent className="p-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+            {[
+              { label: "JS/TS", value: result.stats.jsFiles, color: "text-blue-600 dark:text-blue-400" },
+              { label: "JSON", value: result.stats.jsonFiles, color: "text-green-600 dark:text-green-400" },
+              { label: "SQL", value: result.stats.sqlFiles, color: "text-purple-600 dark:text-purple-400" },
+              { label: "Env", value: result.stats.envFiles, color: "text-amber-600 dark:text-amber-400" },
+              { label: "其他", value: result.stats.otherFiles, color: "text-gray-600 dark:text-gray-400" },
+            ].map((s, i) => (
+              <div key={i} className="space-y-1">
+                <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Progress */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">整体清理进度</span>
+          <span className="font-medium">{progressPercent}%</span>
+        </div>
+        <Progress value={progressPercent} className="h-2" />
+      </div>
+
+      {/* Issues */}
+      {totalItems > 0 ? (
+        <div className="space-y-4">
+          <Tabs value={activeTab} onValueChange={(t) => onChangeTab(id, t)}>
+            <TabsList className="flex flex-wrap h-auto gap-1">
+              <TabsTrigger value="all" className="text-xs">全部 ({totalItems})</TabsTrigger>
+              <TabsTrigger value="critical" className="text-xs">严重 ({criticalCount})</TabsTrigger>
+              <TabsTrigger value="warning" className="text-xs">建议 ({warningCount})</TabsTrigger>
+              <TabsTrigger value="info" className="text-xs">提示 ({infoCount})</TabsTrigger>
+              <TabsTrigger value="notice" className="text-xs">信息 ({noticeCount})</TabsTrigger>
+              <TabsTrigger value="pending" className="text-xs">待处理 ({totalItems - doneCount})</TabsTrigger>
+              <TabsTrigger value="done" className="text-xs">已完成 ({doneCount})</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value={activeTab} className="mt-4 space-y-5">
+              {Object.entries(grouped).map(([category, catItems]) => (
+                <div key={category} className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                      <ScanLine className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-semibold">{category}</h4>
+                      <p className="text-xs text-muted-foreground">发现 {catItems.length} 个问题</p>
+                    </div>
+                    <Badge variant="outline" className="ml-auto shrink-0">{catItems.length} 项</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {catItems.map((item) => (
+                      <AuditItemCard key={item.id} item={item} onToggle={() => onToggleItem(id, item.id)} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {filteredItems.length === 0 && (
+                <div className="text-center py-12">
+                  <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
+                  <h4 className="text-base font-semibold">全部完成</h4>
+                  <p className="text-sm text-muted-foreground mt-1">当前筛选条件下没有待处理项</p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
+          <h4 className="text-base font-semibold">未发现冗余代码</h4>
+          <p className="text-sm text-muted-foreground mt-1">该文件夹代码结构良好</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────── HomePage ───────── */
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -81,41 +392,72 @@ export default function HomePage() {
   const [phase, setPhase] = useState<ScanPhase>("idle");
   const [scanProgress, setScanProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState("");
-  const [result, setResult] = useState<ScannedProject | null>(null);
-  const [items, setItems] = useState<AuditItem[]>([]);
-  const [activeTab, setActiveTab] = useState("all");
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [selectedForDownload, setSelectedForDownload] = useState<Set<string>>(new Set());
 
-  const toggleItem = (id: string) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, checked: !item.checked } : item
-      )
-    );
-  };
-
+  /* 队列扫描 */
   const runScan = useCallback(async (files: FileList) => {
+    const groups = groupFilesByFolder(files);
+    const entries = Array.from(groups.entries());
+
+    if (entries.length > 100) {
+      alert(`最多支持 100 个文件夹，当前选择了 ${entries.length} 个。请减少后重试。`);
+      return;
+    }
+    if (entries.length === 0) {
+      alert("未检测到有效文件。");
+      return;
+    }
+
     setPhase("scanning");
     setScanProgress(0);
-    setResult(null);
-    setItems([]);
+    setBatchResults([]);
+    setCurrentIndex(0);
+    setTotalCount(entries.length);
+    setSelectedForDownload(new Set());
 
-    // Simulate step-by-step progress
-    let progress = 0;
-    for (const step of SCAN_STEPS) {
-      setCurrentStep(step.name);
-      await new Promise((r) => setTimeout(r, step.duration));
-      progress += 100 / SCAN_STEPS.length;
-      setScanProgress(Math.min(progress, 100));
+    const results: BatchResult[] = [];
+
+    for (let i = 0; i < entries.length; i++) {
+      const [folderName, folderFiles] = entries[i];
+      setCurrentIndex(i + 1);
+
+      // 步骤进度动画
+      let progress = 0;
+      for (const step of SCAN_STEPS) {
+        setCurrentStep(`${step.name} — ${folderName} (${i + 1}/${entries.length})`);
+        await new Promise((r) => setTimeout(r, step.duration));
+        progress += 100 / SCAN_STEPS.length;
+        setScanProgress(Math.min(progress, 100));
+      }
+
+      // 实际扫描
+      const fileList = createFileList(folderFiles);
+      const project = await scanProject(fileList);
+      const batchItem: BatchResult = {
+        id: `batch-${Date.now()}-${i}`,
+        projectName: folderName,
+        displayName: `第${i + 1}份文件`,
+        result: project,
+        items: project.issues,
+        activeTab: "all",
+      };
+      results.push(batchItem);
+      setBatchResults([...results]);
+      setScanProgress(0);
     }
 
     setCurrentStep("扫描完成");
     setScanProgress(100);
+    setCurrentIndex(entries.length);
 
-    // Run actual scan
-    const project = await scanProject(files);
-    setResult(project);
-    setItems(project.issues);
+    // 默认全选下载
+    const allIds = results.map((r) => r.id);
+    setSelectedForDownload(new Set(allIds));
 
     await new Promise((r) => setTimeout(r, 500));
     setPhase("done");
@@ -140,107 +482,56 @@ export default function HomePage() {
     setDragOver(true);
   };
 
-  const handleDragLeave = () => {
-    setDragOver(false);
+  const handleDragLeave = () => setDragOver(false);
+
+  const toggleItem = useCallback((batchId: string, itemId: string) => {
+    setBatchResults((prev) =>
+      prev.map((b) =>
+        b.id === batchId
+          ? { ...b, items: b.items.map((it) => (it.id === itemId ? { ...it, checked: !it.checked } : it)) }
+          : b
+      )
+    );
+  }, []);
+
+  const changeTab = useCallback((batchId: string, tab: string) => {
+    setBatchResults((prev) => prev.map((b) => (b.id === batchId ? { ...b, activeTab: tab } : b)));
+  }, []);
+
+  /* 下载 */
+  const handleDownloadSelected = async () => {
+    const toDownload = batchResults.filter((b) => selectedForDownload.has(b.id));
+    for (const batch of toDownload) {
+      const md = generateQualityReport(batch.displayName, batch.result, batch.items);
+      const filename = `quality-report-${batch.displayName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "-")}-${new Date().toISOString().slice(0, 10)}.md`;
+      await downloadWithPicker(md, filename);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    setDownloadDialogOpen(false);
   };
 
-  const filteredItems =
-    activeTab === "all"
-      ? items
-      : items.filter((item) => {
-          if (activeTab === "critical") return item.severity === "critical";
-          if (activeTab === "warning") return item.severity === "warning";
-          if (activeTab === "info") return item.severity === "info";
-          if (activeTab === "notice") return item.severity === "notice";
-          if (activeTab === "done") return item.checked;
-          if (activeTab === "pending") return !item.checked;
-          return true;
-        });
-
-  const totalItems = items.length;
-  const criticalCount = items.filter((i) => i.severity === "critical").length;
-  const warningCount = items.filter((i) => i.severity === "warning").length;
-  const infoCount = items.filter((i) => i.severity === "info").length;
-  const noticeCount = items.filter((i) => i.severity === "notice").length;
-  const doneCount = items.filter((i) => i.checked).length;
-  const progressPercent =
-    totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0;
-
-  // Group items by category
-  const grouped = filteredItems.reduce<Record<string, AuditItem[]>>((acc, item) => {
-    if (!acc[item.category]) acc[item.category] = [];
-    acc[item.category].push(item);
-    return acc;
-  }, {});
+  /* 汇总统计 */
+  const totalScannedFiles = batchResults.reduce((sum, b) => sum + b.result.totalFiles, 0);
+  const totalIssues = batchResults.reduce((sum, b) => sum + b.items.length, 0);
+  const totalCritical = batchResults.reduce((sum, b) => sum + b.items.filter((i) => i.severity === "critical").length, 0);
+  const totalWarning = batchResults.reduce((sum, b) => sum + b.items.filter((i) => i.severity === "warning").length, 0);
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Upload Section - Only show when idle */}
+      {/* ═════ Idle ═════ */}
       {phase === "idle" && (
         <div className="space-y-6">
-          {/* Hero */}
-          <div className="text-center space-y-4 py-8">
+          <div className="text-center space-y-4 py-12">
             <div className="inline-flex p-4 rounded-2xl bg-primary/10">
-              <ScanLine className="w-12 h-12 text-primary" />
+              <ShieldCheck className="w-12 h-12 text-primary" />
             </div>
-            <h2 className="text-3xl font-bold tracking-tight">
-              Node.js 项目代码审计
-            </h2>
+            <h2 className="text-3xl font-bold tracking-tight">代码质量审查</h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              全面扫描你的项目：代码质量审查找出冗余与债务，安全性审查拦截漏洞与风险。
+              批量上传多个项目文件夹，自动检测冗余代码、死函数、未使用依赖、注释代码块、重复逻辑、圈复杂度和幻数等质量问题。
+              <span className="block text-sm mt-1 text-muted-foreground/70">每次最多支持 100 个文件夹，队列逐个审查。</span>
             </p>
           </div>
 
-          {/* Dual Entry Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="group relative rounded-2xl border-2 border-dashed border-primary/30 hover:border-primary hover:bg-primary/5 transition-all duration-300 p-8 text-center space-y-4 text-left"
-            >
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-primary/10 text-primary">
-                  <ShieldCheck className="w-8 h-8" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold group-hover:text-primary transition-colors">
-                    代码质量审查
-                  </h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    冗余代码 · 死函数 · 未使用依赖 · 圈复杂度
-                  </p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                点击上传项目文件夹，自动检测未使用导入、注释代码块、死函数、依赖冗余与历史残留。
-              </p>
-            </button>
-
-            <button
-              onClick={() => navigate("/security")}
-              className="group relative rounded-2xl border-2 border-dashed border-red-400/30 hover:border-red-500 hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-all duration-300 p-8 text-center space-y-4 text-left"
-            >
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-red-500/10 text-red-600 dark:text-red-400">
-                  <ShieldAlert className="w-8 h-8" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">
-                    代码安全性审查
-                  </h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    SQL注入 · XSS · 硬编码密钥 · CSRF · 命令注入
-                  </p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-red-500 transition-colors" />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                跳转至安全审查模式，检测注入漏洞、敏感数据泄露、认证缺陷、依赖漏洞与部署风险。
-              </p>
-            </button>
-          </div>
-
-          {/* Upload Zone */}
           <div
             onClick={() => fileInputRef.current?.click()}
             onDrop={handleDrop}
@@ -255,31 +546,20 @@ export default function HomePage() {
             <input
               ref={fileInputRef}
               type="file"
-              // @ts-expect-error webkitdirectory is non-standard but supported
+              // @ts-expect-error webkitdirectory
               webkitdirectory="true"
               directory="true"
               multiple
               onChange={handleFileSelect}
               className="hidden"
             />
-            <div
-              className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center transition-colors ${
-                dragOver ? "bg-primary/20" : "bg-muted"
-              }`}
-            >
-              {dragOver ? (
-                <FolderOpen className="w-10 h-10 text-primary" />
-              ) : (
-                <Upload className="w-10 h-10 text-muted-foreground" />
-              )}
+            <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center transition-colors ${dragOver ? "bg-primary/20" : "bg-muted"}`}>
+              {dragOver ? <FolderOpen className="w-10 h-10 text-primary" /> : <Upload className="w-10 h-10 text-muted-foreground" />}
             </div>
             <div className="space-y-2">
-              <p className="text-lg font-medium">
-                {dragOver ? "松开以上传文件夹" : "选择或拖拽项目文件夹"}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                支持整个项目目录上传，自动排除 node_modules 和 .git
-              </p>
+              <p className="text-lg font-medium">{dragOver ? "松开以上传文件夹" : "选择或拖拽项目文件夹"}</p>
+              <p className="text-sm text-muted-foreground">支持同时选择多个文件夹，自动排除 node_modules 和 .git</p>
+              <p className="text-xs text-muted-foreground/60">最多 100 个文件夹 · 队列逐个扫描</p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-2">
               <Badge variant="secondary">.js .ts</Badge>
@@ -289,63 +569,21 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Capabilities Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
-              {
-                icon: <EyeOff className="w-5 h-5" />,
-                title: "未使用导入检测",
-                desc: "扫描 require/import 语句中未被引用的模块和变量",
-              },
-              {
-                icon: <Trash2 className="w-5 h-5" />,
-                title: "死函数识别",
-                desc: "发现定义但未被调用的函数和方法",
-              },
-              {
-                icon: <FileCode className="w-5 h-5" />,
-                title: "注释代码块",
-                desc: "检测被注释掉的代码段和废弃逻辑",
-              },
-              {
-                icon: <PackageOpen className="w-5 h-5" />,
-                title: "依赖分析",
-                desc: "对比 package.json 与实际代码中的依赖使用情况",
-              },
-              {
-                icon: <Settings className="w-5 h-5" />,
-                title: "环境变量审计",
-                desc: "检查 .env 中定义但未使用的配置项",
-              },
-              {
-                icon: <GitMerge className="w-5 h-5" />,
-                title: "重复逻辑检测",
-                desc: "发现多处出现的相似 SQL 查询和代码模式",
-              },
-              {
-                icon: <BarChart3 className="w-5 h-5" />,
-                title: "圈复杂度分析",
-                desc: "计算文件和函数的圈复杂度，识别高复杂度模块",
-              },
-              {
-                icon: <MessageSquare className="w-5 h-5" />,
-                title: "幻数检测",
-                desc: "发现未命名的字面量数值，建议提取为具名常量",
-              },
-              {
-                icon: <MessageSquare className="w-5 h-5" />,
-                title: "注释覆盖率审计",
-                desc: "评估文件注释覆盖率，识别低注释模块",
-              },
+              { icon: <EyeOff className="w-5 h-5" />, title: "未使用导入检测", desc: "扫描 require/import 语句中未被引用的模块和变量" },
+              { icon: <Trash2 className="w-5 h-5" />, title: "死函数识别", desc: "发现定义但未被调用的函数和方法" },
+              { icon: <FileCode className="w-5 h-5" />, title: "注释代码块", desc: "检测被注释掉的代码段和废弃逻辑" },
+              { icon: <PackageOpen className="w-5 h-5" />, title: "依赖分析", desc: "对比 package.json 与实际代码中的依赖使用情况" },
+              { icon: <Settings className="w-5 h-5" />, title: "环境变量审计", desc: "检查 .env 中定义但未使用的配置项" },
+              { icon: <GitMerge className="w-5 h-5" />, title: "重复逻辑检测", desc: "发现多处出现的相似 SQL 查询和代码模式" },
+              { icon: <BarChart3 className="w-5 h-5" />, title: "圈复杂度分析", desc: "计算文件和函数的圈复杂度，识别高复杂度模块" },
+              { icon: <MessageSquare className="w-5 h-5" />, title: "幻数检测", desc: "发现未命名的字面量数值，建议提取为具名常量" },
+              { icon: <MessageSquare className="w-5 h-5" />, title: "注释覆盖率审计", desc: "评估文件注释覆盖率，识别低注释模块" },
             ].map((cap, idx) => (
-              <Card
-                key={idx}
-                className="audit-card hover:border-primary/30"
-              >
+              <Card key={idx} className="audit-card hover:border-primary/30">
                 <CardContent className="p-0 space-y-3">
-                  <div className="p-2 rounded-lg bg-primary/10 text-primary w-fit">
-                    {cap.icon}
-                  </div>
+                  <div className="p-2 rounded-lg bg-primary/10 text-primary w-fit">{cap.icon}</div>
                   <h3 className="font-semibold">{cap.title}</h3>
                   <p className="text-sm text-muted-foreground">{cap.desc}</p>
                 </CardContent>
@@ -353,45 +591,54 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Example Link */}
           <div className="text-center pt-4">
-            <button
-              onClick={() => navigate("/examples")}
-              className="text-sm text-primary hover:underline inline-flex items-center gap-1.5"
-            >
-              <Search className="w-4 h-4" />
-              查看示例审计报告，了解输出格式
+            <button onClick={() => navigate("/security")} className="text-sm text-red-600 dark:text-red-400 hover:underline inline-flex items-center gap-1.5">
+              <ShieldAlert className="w-4 h-4" />
+              切换到代码安全性审查
             </button>
           </div>
         </div>
       )}
 
-      {/* Scanning Progress */}
+      {/* ═════ Scanning ═════ */}
       {phase === "scanning" && (
         <div className="max-w-xl mx-auto space-y-8 py-16">
           <div className="text-center space-y-4">
             <div className="inline-flex p-4 rounded-2xl bg-primary/10">
               <Loader2 className="w-12 h-12 text-primary animate-spin" />
             </div>
-            <h2 className="text-2xl font-bold">正在扫描项目...</h2>
+            <h2 className="text-2xl font-bold">
+              正在扫描项目… {currentIndex > 0 && `(${currentIndex}/${totalCount})`}
+            </h2>
             <p className="text-muted-foreground">{currentStep}</p>
           </div>
 
           <div className="space-y-3">
             <Progress value={scanProgress} className="h-3" />
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>分析中</span>
+              <span>{currentIndex > 0 ? `第 ${currentIndex} / ${totalCount} 个文件夹` : "准备中"}</span>
               <span>{Math.round(scanProgress)}%</span>
             </div>
           </div>
 
+          {/* 已完成队列 */}
+          {batchResults.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-muted-foreground">已完成</p>
+              {batchResults.map((b) => (
+                <div key={b.id} className="flex items-center gap-3 px-4 py-2 rounded-lg text-sm bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{b.projectName}</span>
+                  <span className="ml-auto shrink-0 text-xs">{b.items.length} 个问题</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="space-y-2">
             {SCAN_STEPS.map((step, idx) => {
-              const isDone =
-                scanProgress >= ((idx + 1) / SCAN_STEPS.length) * 100;
-              const isCurrent =
-                !isDone &&
-                scanProgress >= (idx / SCAN_STEPS.length) * 100;
+              const isDone = scanProgress >= ((idx + 1) / SCAN_STEPS.length) * 100;
+              const isCurrent = !isDone && scanProgress >= (idx / SCAN_STEPS.length) * 100;
               return (
                 <div
                   key={idx}
@@ -418,29 +665,187 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Scan Results */}
-      {phase === "done" && result && (
+      {/* ═════ Done ═════ */}
+      {phase === "done" && batchResults.length > 0 && (
         <div className="space-y-6">
-          {/* Result Header */}
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
-                <FileCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
+          {/* 下载横幅 */}
+          <div className="rounded-2xl border-2 border-primary/20 bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 p-6 sm:p-8">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-5">
+              <div className="flex items-center gap-5">
+                <div className="p-4 rounded-2xl bg-primary shadow-lg shadow-primary/20">
+                  <Download className="w-10 h-10 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-foreground">代码质量审查报告已生成</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    共扫描 {batchResults.length} 个文件夹 · {totalScannedFiles} 个文件 · {totalIssues} 个问题
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-2xl font-bold">
-                  {result.projectName}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  扫描完成 · {result.totalFiles} 个文件 · {result.stats.totalLines.toLocaleString()} 行代码
-                </p>
-              </div>
+              <button
+                onClick={() => setDownloadDialogOpen(true)}
+                className="shrink-0 inline-flex items-center gap-3 px-8 py-4 rounded-xl bg-primary text-white text-base font-bold shadow-lg shadow-primary/25 hover:bg-primary/90 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
+                <Download className="w-6 h-6" />
+                下载报告
+              </button>
             </div>
+          </div>
+
+          {/* 汇总卡片 */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <StatCard title="扫描文件夹" value={batchResults.length} icon={<Folder className="w-5 h-5" />} subtitle="总计" />
+            <StatCard title="总问题数" value={totalIssues} icon={<FileSearch className="w-5 h-5" />} subtitle="全部检查项" />
+            <StatCard title="严重" value={totalCritical} icon={<AlertTriangle className="w-5 h-5" />} subtitle="需立即处理" />
+            <StatCard title="建议" value={totalWarning} icon={<AlertCircle className="w-5 h-5" />} subtitle="建议优化" />
+          </div>
+
+          {/* 折叠结果 */}
+          <Accordion type="multiple" className="space-y-3">
+            {batchResults.map((batch) => {
+              const issueCount = batch.items.length;
+              const critical = batch.items.filter((i) => i.severity === "critical").length;
+              const warning = batch.items.filter((i) => i.severity === "warning").length;
+              return (
+                <AccordionItem
+                  key={batch.id}
+                  value={batch.id}
+                  className="border rounded-xl px-4 data-[state=open]:bg-muted/20"
+                >
+                  <AccordionTrigger className="hover:no-underline py-4 text-left">
+                    <div className="flex items-center gap-4 w-full pr-4">
+                      <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+                        <FolderOpen className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-base font-semibold truncate">{batch.displayName}</h4>
+                        <p className="text-xs text-muted-foreground">
+                          {batch.result.totalFiles} 文件 · {batch.result.stats.totalLines.toLocaleString()} 行
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {critical > 0 && (
+                          <Badge variant="destructive" className="text-xs">严重 {critical}</Badge>
+                        )}
+                        {warning > 0 && (
+                          <Badge variant="secondary" className="text-xs text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/20">
+                            建议 {warning}
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="text-xs">{issueCount} 项</Badge>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-4">
+                    <div className="pt-2 border-t">
+                      <SubResultViewer batch={batch} onToggleItem={toggleItem} onChangeTab={changeTab} />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+
+          {/* 方法论 */}
+          <Accordion type="single" collapsible>
+            <AccordionItem value="guidelines">
+              <AccordionTrigger className="text-base font-semibold hover:no-underline">
+                <span className="flex items-center gap-2">
+                  <FileCode className="w-5 h-5 text-primary" />
+                  审计方法论 &amp; 确认废弃的判定标准
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="border-l-4 border-l-blue-500">
+                    <CardContent className="p-4 space-y-2">
+                      <h4 className="font-semibold text-sm flex items-center gap-2">
+                        <Code2 className="w-4 h-4 text-blue-500" />
+                        静态分析工具
+                      </h4>
+                      <ul className="text-sm text-muted-foreground space-y-1">
+                        <li>• depcheck — 检测未使用的 npm 依赖</li>
+                        <li>• eslint (no-unused-vars) — 未使用变量</li>
+                        <li>• VS Code "Find All References" — 函数引用追踪</li>
+                        <li>• grep / ripgrep — 全局文本搜索</li>
+                      </ul>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-l-4 border-l-green-500">
+                    <CardContent className="p-4 space-y-2">
+                      <h4 className="font-semibold text-sm flex items-center gap-2">
+                        <Database className="w-4 h-4 text-green-500" />
+                        数据库验证
+                      </h4>
+                      <ul className="text-sm text-muted-foreground space-y-1">
+                        <li>• sqlite3 直接查询表最后写入时间</li>
+                        <li>• 对比 schema.sql 与代码中的查询语句</li>
+                        <li>• 检查外键依赖和索引使用情况</li>
+                        <li>• 查看 ORM 模型定义与实际表结构</li>
+                      </ul>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-l-4 border-l-amber-500">
+                    <CardContent className="p-4 space-y-2">
+                      <h4 className="font-semibold text-sm flex items-center gap-2">
+                        <Route className="w-4 h-4 text-amber-500" />
+                        路由验证
+                      </h4>
+                      <ul className="text-sm text-muted-foreground space-y-1">
+                        <li>• Nginx access.log 分析端点请求频率</li>
+                        <li>• 前端代码搜索 API 端点调用</li>
+                        <li>• 对比路由注册与控制器实现</li>
+                        <li>• 检查测试用例中的路由覆盖</li>
+                      </ul>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-l-4 border-l-purple-500">
+                    <CardContent className="p-4 space-y-2">
+                      <h4 className="font-semibold text-sm flex items-center gap-2">
+                        <GitMerge className="w-4 h-4 text-purple-500" />
+                        Git 历史验证
+                      </h4>
+                      <ul className="text-sm text-muted-foreground space-y-1">
+                        <li>• git log --follow 查看文件修改历史</li>
+                        <li>• git blame 定位代码最后修改时间</li>
+                        <li>• 查看注释中的废弃标记日期</li>
+                        <li>• 对比 tag 版本间的变更</li>
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-4">
+                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-primary" />
+                    删除前的安全检查清单
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
+                    {[
+                      "确认代码中无引用（至少 2 种工具交叉验证）",
+                      "确认无运行时动态调用（字符串拼接 require/eval）",
+                      "确认无测试用例依赖",
+                      "确认数据库无外部工具直接读写",
+                      "已在独立分支操作，可随时回滚",
+                      "删除后在 staging 环境完整回归测试",
+                    ].map((check, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                        <span>{check}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          {/* 底部操作 */}
+          <div className="flex items-center justify-center pt-4">
             <button
               onClick={() => {
                 setPhase("idle");
-                setResult(null);
-                setItems([]);
+                setBatchResults([]);
+                setSelectedForDownload(new Set());
               }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-muted transition-colors"
             >
@@ -448,283 +853,81 @@ export default function HomePage() {
               扫描新项目
             </button>
           </div>
-
-          {/* Stats Row */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            <StatCard
-              title="总问题数"
-              value={totalItems}
-              icon={<FileSearch className="w-5 h-5" />}
-              subtitle="全部检查项"
-            />
-            <StatCard
-              title="严重"
-              value={criticalCount}
-              icon={<AlertTriangle className="w-5 h-5" />}
-              subtitle="需立即处理"
-            />
-            <StatCard
-              title="建议"
-              value={warningCount}
-              icon={<AlertCircle className="w-5 h-5" />}
-              subtitle="建议优化"
-            />
-            <StatCard
-              title="提示"
-              value={infoCount}
-              icon={<Info className="w-5 h-5" />}
-              subtitle="参考信息"
-            />
-            <StatCard
-              title="已处理"
-              value={doneCount}
-              icon={<CheckCircle2 className="w-5 h-5" />}
-              subtitle="已完成清理"
-            />
-            <StatCard
-              title="完成率"
-              value={progressPercent}
-              icon={<Zap className="w-5 h-5" />}
-              subtitle="清理进度 %"
-            />
-          </div>
-
-          {/* Complexity Stats */}
-          {result && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard
-                title="总圈复杂度"
-                value={result.complexity.totalCyclomatic}
-                icon={<BarChart3 className="w-5 h-5" />}
-                subtitle="Cyclomatic"
-              />
-              <StatCard
-                title="平均/文件"
-                value={result.complexity.avgPerFile}
-                icon={<BarChart3 className="w-5 h-5" />}
-                subtitle="复杂度均值"
-              />
-              <StatCard
-                title="注释覆盖率"
-                value={`${result.complexity.commentCoverage}%`}
-                icon={<MessageSquare className="w-5 h-5" />}
-                subtitle="项目级"
-              />
-              <StatCard
-                title="信息级"
-                value={noticeCount}
-                icon={<MessageSquare className="w-5 h-5" />}
-                subtitle="参考信息"
-              />
-            </div>
-          )}
-
-          {/* File Stats */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center">
-                {[
-                  { label: "JS/TS 文件", value: result.stats.jsFiles, color: "text-blue-600 dark:text-blue-400" },
-                  { label: "JSON 文件", value: result.stats.jsonFiles, color: "text-green-600 dark:text-green-400" },
-                  { label: "SQL 文件", value: result.stats.sqlFiles, color: "text-purple-600 dark:text-purple-400" },
-                  { label: "Env 文件", value: result.stats.envFiles, color: "text-amber-600 dark:text-amber-400" },
-                  { label: "其他", value: result.stats.otherFiles, color: "text-gray-600 dark:text-gray-400" },
-                ].map((s, i) => (
-                  <div key={i} className="space-y-1">
-                    <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                    <p className="text-xs text-muted-foreground">{s.label}</p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Progress Bar */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">整体清理进度</span>
-              <span className="font-medium">{progressPercent}%</span>
-            </div>
-            <Progress value={progressPercent} className="h-2.5" />
-          </div>
-
-          {/* Issues List */}
-          {totalItems > 0 ? (
-            <div className="space-y-6">
-              <Tabs
-                defaultValue="all"
-                value={activeTab}
-                onValueChange={setActiveTab}
-              >
-                <TabsList className="flex flex-wrap h-auto gap-1">
-                  <TabsTrigger value="all" className="text-xs">
-                    全部 ({totalItems})
-                  </TabsTrigger>
-                  <TabsTrigger value="critical" className="text-xs">
-                    严重 ({criticalCount})
-                  </TabsTrigger>
-                  <TabsTrigger value="warning" className="text-xs">
-                    建议 ({warningCount})
-                  </TabsTrigger>
-                  <TabsTrigger value="info" className="text-xs">
-                    提示 ({infoCount})
-                  </TabsTrigger>
-                  <TabsTrigger value="notice" className="text-xs">
-                    信息 ({noticeCount})
-                  </TabsTrigger>
-                  <TabsTrigger value="pending" className="text-xs">
-                    待处理 ({totalItems - doneCount})
-                  </TabsTrigger>
-                  <TabsTrigger value="done" className="text-xs">
-                    已完成 ({doneCount})
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value={activeTab} className="mt-6 space-y-6">
-                  {Object.entries(grouped).map(([category, catItems]) => (
-                    <div key={category} className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                          <ScanLine className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h2 className="text-lg font-semibold">{category}</h2>
-                          <p className="text-sm text-muted-foreground">
-                            发现 {catItems.length} 个问题
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="ml-auto shrink-0">
-                          {catItems.length} 项
-                        </Badge>
-                      </div>
-                      <div className="space-y-3">
-                        {catItems.map((item) => (
-                          <AuditItemCard
-                            key={item.id}
-                            item={item}
-                            onToggle={() => toggleItem(item.id)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {filteredItems.length === 0 && (
-                    <div className="text-center py-20">
-                      <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold">全部完成</h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        当前筛选条件下没有待处理项
-                      </p>
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
-
-              {/* Guidelines */}
-              <Accordion type="single" collapsible>
-                <AccordionItem value="guidelines">
-                  <AccordionTrigger className="text-base font-semibold hover:no-underline">
-                    <span className="flex items-center gap-2">
-                      <FileCode className="w-5 h-5 text-primary" />
-                      审计方法论 &amp; 确认废弃的判定标准
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-4 pt-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Card className="border-l-4 border-l-blue-500">
-                        <CardContent className="p-4 space-y-2">
-                          <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <Code2 className="w-4 h-4 text-blue-500" />
-                            静态分析工具
-                          </h4>
-                          <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• depcheck — 检测未使用的 npm 依赖</li>
-                            <li>• eslint (no-unused-vars) — 未使用变量</li>
-                            <li>• VS Code "Find All References" — 函数引用追踪</li>
-                            <li>• grep / ripgrep — 全局文本搜索</li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-l-4 border-l-green-500">
-                        <CardContent className="p-4 space-y-2">
-                          <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <Database className="w-4 h-4 text-green-500" />
-                            数据库验证
-                          </h4>
-                          <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• sqlite3 直接查询表最后写入时间</li>
-                            <li>• 对比 schema.sql 与代码中的查询语句</li>
-                            <li>• 检查外键依赖和索引使用情况</li>
-                            <li>• 查看 ORM 模型定义与实际表结构</li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-l-4 border-l-amber-500">
-                        <CardContent className="p-4 space-y-2">
-                          <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <Route className="w-4 h-4 text-amber-500" />
-                            路由验证
-                          </h4>
-                          <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• Nginx access.log 分析端点请求频率</li>
-                            <li>• 前端代码搜索 API 端点调用</li>
-                            <li>• 对比路由注册与控制器实现</li>
-                            <li>• 检查测试用例中的路由覆盖</li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-l-4 border-l-purple-500">
-                        <CardContent className="p-4 space-y-2">
-                          <h4 className="font-semibold text-sm flex items-center gap-2">
-                            <GitMerge className="w-4 h-4 text-purple-500" />
-                            Git 历史验证
-                          </h4>
-                          <ul className="text-sm text-muted-foreground space-y-1">
-                            <li>• git log --follow 查看文件修改历史</li>
-                            <li>• git blame 定位代码最后修改时间</li>
-                            <li>• 查看注释中的废弃标记日期</li>
-                            <li>• 对比 tag 版本间的变更</li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-                    </div>
-                    <div className="rounded-lg bg-muted/50 p-4">
-                      <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                        <Shield className="w-4 h-4 text-primary" />
-                        删除前的安全检查清单
-                      </h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
-                        {[
-                          "确认代码中无引用（至少 2 种工具交叉验证）",
-                          "确认无运行时动态调用（字符串拼接 require/eval）",
-                          "确认无测试用例依赖",
-                          "确认数据库无外部工具直接读写",
-                          "已在独立分支操作，可随时回滚",
-                          "删除后在 staging 环境完整回归测试",
-                        ].map((check, idx) => (
-                          <div key={idx} className="flex items-start gap-2">
-                            <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
-                            <span>{check}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </div>
-          ) : (
-            <div className="text-center py-20">
-              <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold">未发现冗余代码</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                扫描完成，你的项目代码结构良好，未发现明显问题
-              </p>
-            </div>
-          )}
         </div>
       )}
+
+      {/* ═════ Download Dialog ═════ */}
+      <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="w-5 h-5 text-primary" />
+              选择要下载的报告
+            </DialogTitle>
+            <DialogDescription>勾选需要下载的报告文件，将逐个保存为 Markdown 格式。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2 max-h-[60vh] overflow-y-auto">
+            {/* 全选/取消 */}
+            <div className="flex items-center gap-3 pb-2 border-b">
+              <Checkbox
+                id="select-all"
+                checked={selectedForDownload.size === batchResults.length && batchResults.length > 0}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    setSelectedForDownload(new Set(batchResults.map((b) => b.id)));
+                  } else {
+                    setSelectedForDownload(new Set());
+                  }
+                }}
+              />
+              <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
+                全选 / 取消全选
+              </label>
+            </div>
+
+            {batchResults.map((batch) => (
+              <div key={batch.id} className="flex items-start gap-3 px-1">
+                <Checkbox
+                  id={`dl-${batch.id}`}
+                  checked={selectedForDownload.has(batch.id)}
+                  onCheckedChange={(checked) => {
+                    setSelectedForDownload((prev) => {
+                      const next = new Set(prev);
+                      if (checked) next.add(batch.id);
+                      else next.delete(batch.id);
+                      return next;
+                    });
+                  }}
+                />
+                <div className="min-w-0 flex-1">
+                  <label htmlFor={`dl-${batch.id}`} className="text-sm font-medium cursor-pointer block truncate">
+                    {batch.displayName}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {batch.result.totalFiles} 文件 · {batch.items.length} 个问题
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setDownloadDialogOpen(false)}
+              className="px-4 py-2 rounded-lg border text-sm font-medium hover:bg-muted transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleDownloadSelected}
+              disabled={selectedForDownload.size === 0}
+              className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              下载选中 ({selectedForDownload.size})
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
